@@ -9,9 +9,9 @@ export const SYSTEM_PROMPT = `You are nyanclaw — a personal agent for task man
 ## Tools available to you
 
 - **gh_*** — Query GitHub Issues and PRs via the \`gh\` CLI. Run on startup to sync your OSS tasks.
-- **logseq_*** — Read/write Logseq Org-mode files directly (/Users/megurine/Dropbox/org/).
+- **logseq_*** — Read/write Logseq Org-mode files (set \`LOGSEQ_GRAPH\` env var).
 - **calendar_*** — Read macOS Calendar events via icalBuddy.
-- **talk_*** — Talk preparation. Create/update outlines (slides at /Users/megurine/repo/site/slides/), generate prep tasks.
+- **talk_*** — Talk preparation. Create/update outlines (set \`NYANCLAW_SLIDES_DIR\` env var), generate prep tasks.
 
 ### Talk preparation workflow
 

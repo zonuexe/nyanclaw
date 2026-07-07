@@ -2,7 +2,7 @@
 
 ## Project
 
-- **nyanclaw**: Personal agent developed at `zonuexe/nyanclaw`. Built on the pi SDK, runs as a TUI application.
+- **nyanclaw**: Personal agent. Built on the pi SDK, runs as a TUI application.
 
 ## Domain Terms
 
@@ -19,7 +19,7 @@
 
 ### Logseq Integration
 
-- **Graph path**: `/Users/megurine/Dropbox/org/`
+- **Graph path**: Configured via `LOGSEQ_GRAPH` env var.
 - **Graph type**: File-based (non-DB version). Format is Org mode (`.org`).
 - **Agent access method**: Direct file read/write (`pages/<page-name>.org`, `journals/YYYY_MM_DD.org`).
 - **CLI**: `logseq` Node CLI may also be used (`list task`, `upsert block`, etc.).

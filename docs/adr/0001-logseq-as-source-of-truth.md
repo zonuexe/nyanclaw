@@ -10,7 +10,7 @@ nyanclaw is a personal agent whose core functions are task management, schedule 
 
 ## Decision
 
-Logseq (`/Users/megurine/Dropbox/org/`, file-based, Org mode format) is the primary store (Source of Truth) for task management. Tasks are managed in Logseq using Org mode's `TODO`/`DONE`/`WAITING` keywords, `SCHEDULED:`/`DEADLINE:` properties, and Logseq's `#Task` tag.
+Logseq (file-based, Org mode format, path configured via `LOGSEQ_GRAPH`) is the primary store (Source of Truth) for task management. Tasks are managed in Logseq using Org mode's `TODO`/`DONE`/`WAITING` keywords, `SCHEDULED:`/`DEADLINE:` properties, and Logseq's `#Task` tag.
 
 GitHub is an external integration only. On nyanclaw startup, `gh` CLI fetches the user's own Issues/PRs and assigned Issues and imports them into Logseq for visibility. This sync is one-way (GitHub → Logseq only); state changes in Logseq are never written back to GitHub.
 
