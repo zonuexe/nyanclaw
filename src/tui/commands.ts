@@ -1,5 +1,6 @@
 import type { Agent } from "@earendil-works/pi-agent-core";
 import type { AutocompleteItem, SlashCommand } from "@earendil-works/pi-tui";
+import { deleteKeychainKey } from "../keychain.ts";
 
 export interface CommandDef {
   name: string;
@@ -51,6 +52,15 @@ export const commands: CommandDef[] = [
         timestamp: Date.now(),
       });
       return "Reading journal...";
+    },
+  },
+  {
+    name: "reset-key",
+    description: "Delete the stored API key from Keychain and exit. Restart to re-enter it.",
+    run: async (_agent, args) => {
+      const provider = args[0] ?? process.env.NYANCLAW_PROVIDER ?? "opencode-go";
+      deleteKeychainKey(provider);
+      return `API key for "${provider}" removed from Keychain. Restart nyanclaw to re-enter it.`;
     },
   },
 ];

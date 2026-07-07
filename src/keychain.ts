@@ -33,6 +33,22 @@ export function getKeychainKey(account: string): string | null {
 }
 
 /**
+ * Remove an API key from the macOS Keychain.
+ *
+ * Silently succeeds if the entry doesn't exist.
+ * On non-macOS platforms this is a no-op.
+ */
+export function deleteKeychainKey(account: string): void {
+  if (!isMacOS()) return;
+  try {
+    execSync(
+      `security delete-generic-password -s '${SERVICE}' -a '${account}' 2>/dev/null`,
+      { timeout: 3000 },
+    );
+  } catch {}
+}
+
+/**
  * Store an API key in the macOS Keychain.
  *
  * Creates a generic password item with the specified account name.
