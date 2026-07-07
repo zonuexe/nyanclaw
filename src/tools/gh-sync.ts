@@ -24,14 +24,17 @@ function defineTool(def: {
 
 function pagePath(name: string): string {
   const graph = logseqGraph();
+  const encodedName = name.replace(/\//g, "%2F");
   const candidates = [
     join(graph, "pages", `${name}.org`),
     join(graph, "pages", `${name}.md`),
+    join(graph, "pages", `${encodedName}.org`),
+    join(graph, "pages", `${encodedName}.md`),
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;
   }
-  return candidates[0]; // default to .org
+  return join(graph, "pages", `${encodedName}.org`);
 }
 
 function readPage(name: string): string | null {
@@ -41,7 +44,9 @@ function readPage(name: string): string | null {
 }
 
 function writePage(name: string, content: string): void {
-  const p = pagePath(name);
+  const graph = logseqGraph();
+  const encodedName = name.replace(/\//g, "%2F");
+  const p = join(graph, "pages", `${encodedName}.org`);
   const dir = p.substring(0, p.lastIndexOf("/"));
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(p, content, "utf-8");
