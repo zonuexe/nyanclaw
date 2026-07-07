@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import * as readline from "node:readline";
+import { Writable } from "node:stream";
 import { createAgent } from "./agent/create-agent.ts";
 import { NyanclawTui } from "./tui/index.ts";
 import { getKeychainKey, setKeychainKey } from "./keychain.ts";
@@ -30,8 +32,8 @@ async function resolveApiKey(provider: string): Promise<string> {
 }
 
 /**
- * Prompt the user for an API key interactively.
- * Uses raw mode to prevent echo to terminal.
+ * Prompt the user for an API key interactively via readline.
+ * Uses a muted output stream so the key is not echoed to the terminal.
  */
 function promptApiKey(provider: string, envVar?: string): Promise<string> {
   const hint = envVar ? ` (or set ${envVar})` : "";
@@ -39,23 +41,24 @@ function promptApiKey(provider: string, envVar?: string): Promise<string> {
   process.stderr.write(`\nnyanclaw: No API key found for "${provider}"${hint}.\n`);
   process.stderr.write(`Paste your API key and press Enter: `);
 
+  const muted = new Writable({
+    write(_chunk, _encoding, cb) {
+      cb();
+    },
+  });
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: muted,
+    terminal: true,
+  });
+
   return new Promise((resolve) => {
-    const wasRaw = process.stdin.isRaw ?? false;
-    if (process.stdin.setRawMode) process.stdin.setRawMode(true);
-
-    const onData = (data: Buffer) => {
-      const key = data.toString("utf-8").replace(/[\r\n]/g, "").trim();
-      if (!key) return;
-
-      if (process.stdin.setRawMode) process.stdin.setRawMode(wasRaw);
-      process.stdin.removeListener("data", onData);
-      process.stdin.pause();
+    rl.question("", (key) => {
+      rl.close();
       process.stderr.write("\n");
-      resolve(key);
-    };
-
-    process.stdin.on("data", onData);
-    process.stdin.resume();
+      resolve(key.trim());
+    });
   });
 }
 
