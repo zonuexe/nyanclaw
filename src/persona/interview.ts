@@ -1,7 +1,7 @@
 import * as readline from "node:readline";
 import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { workspaceDir } from "../config.ts";
+import { workspaceDir, configDirectory } from "../config.ts";
 
 interface InterviewAnswers {
   userName: string;
@@ -9,6 +9,8 @@ interface InterviewAnswers {
   roles: string;
   projects: string;
   interactionStyle: string;
+  logseqPath: string;
+  slidesPath: string;
 }
 
 const EN_QUESTIONS = [
@@ -25,6 +27,16 @@ const JA_QUESTIONS = [
   { key: "roles" as const, prompt: "どんな活動をしていますか（OSS 開発、プログラマー、登壇など）" },
   { key: "projects" as const, prompt: "主なプロジェクトや取り組みは何ですか" },
   { key: "interactionStyle" as const, prompt: "会話のスタイルについて希望はありますか（簡潔に、日本語で、など）" },
+];
+
+const EXTRA_EN = [
+  { key: "logseqPath" as const, prompt: "Path to your Logseq graph (directory with journals/ and pages/)" },
+  { key: "slidesPath" as const, prompt: "Path to your slides directory (optional, for talk tools)" },
+];
+
+const EXTRA_JA = [
+  { key: "logseqPath" as const, prompt: "Logseq グラフのパス（journals/ と pages/ があるディレクトリ）" },
+  { key: "slidesPath" as const, prompt: "スライドディレクトリのパス（任意、トーク準備ツール用）" },
 ];
 
 function ask(rl: readline.Interface, question: string, defaultValue?: string): Promise<string> {
@@ -142,6 +154,42 @@ function isTemplateFile(filePath: string): boolean {
   return false;
 }
 
+function validateLogseqPath(path: string): { path: string; warning?: string } {
+  const journals = join(path, "journals");
+  const pages = join(path, "pages");
+  let warning: string | undefined;
+
+  if (!existsSync(journals) && !existsSync(pages)) {
+    warning = "Warning: no journals/ or pages/ directories found — may not be a Logseq graph";
+  } else if (!existsSync(journals)) {
+    warning = "Warning: no journals/ directory found";
+  } else if (!existsSync(pages)) {
+    warning = "Warning: no pages/ directory found";
+  }
+
+  return { path, warning };
+}
+
+function writeConfigPaths(logseqPath: string, slidesPath: string): void {
+  const configPath = join(configDirectory(), "config.yaml");
+  if (!existsSync(configPath)) return;
+
+  let content = readFileSync(configPath, "utf-8");
+  const updates: [string, string][] = [];
+
+  if (logseqPath && !content.includes("logseq_graph")) {
+    updates.push(["logseq_graph", logseqPath]);
+  }
+  if (slidesPath && !content.includes("slides_dir")) {
+    updates.push(["slides_dir", slidesPath]);
+  }
+
+  if (updates.length > 0) {
+    const appendix = updates.map(([k, v]) => `${k}: ${v}`).join("\n");
+    writeFileSync(configPath, content.trimEnd() + "\n" + appendix + "\n", "utf-8");
+  }
+}
+
 export function needsOnboarding(): boolean {
   const dir = workspaceDir();
   const userMd = join(dir, "USER.md");
@@ -163,32 +211,41 @@ export async function runOnboarding(): Promise<void> {
   });
 
   const answers: InterviewAnswers = {
-    userName: "",
-    timezone: "",
-    roles: "",
-    projects: "",
-    interactionStyle: "",
+    userName: "", timezone: "", roles: "", projects: "", interactionStyle: "",
+    logseqPath: "", slidesPath: "",
   };
 
-  // First question always in English to detect language
   answers.userName = await ask(rl, EN_QUESTIONS[0].prompt);
   const lang = detectLanguageFromName(answers.userName);
 
   const questions = lang === "ja" ? JA_QUESTIONS : EN_QUESTIONS;
   for (let i = 1; i < questions.length; i++) {
-    const q = questions[i];
-    answers[q.key] = await ask(rl, q.prompt, q.default);
+    answers[questions[i].key] = await ask(rl, questions[i].prompt, questions[i].default);
   }
+
+  const extraQs = lang === "ja" ? EXTRA_JA : EXTRA_EN;
+  const logseqAnswer = await ask(rl, extraQs[0].prompt);
+  if (logseqAnswer) {
+    const validated = validateLogseqPath(logseqAnswer);
+    answers.logseqPath = validated.path;
+    if (validated.warning) {
+      process.stderr.write(`  ${validated.warning}\n`);
+    }
+  }
+
+  const slidesAnswer = await ask(rl, extraQs[1].prompt);
+  if (slidesAnswer) answers.slidesPath = slidesAnswer;
 
   rl.close();
 
-  const userMd = generateUserMd(answers);
-  const soulMd = generateSoulMd(answers);
+  writeFileSync(join(dir, "USER.md"), generateUserMd(answers), "utf-8");
+  writeFileSync(join(dir, "SOUL.md"), generateSoulMd(answers), "utf-8");
 
-  writeFileSync(join(dir, "USER.md"), userMd, "utf-8");
-  writeFileSync(join(dir, "SOUL.md"), soulMd, "utf-8");
+  writeConfigPaths(answers.logseqPath, answers.slidesPath);
 
-  process.stderr.write("\nOnboarding complete. Files created:\n");
+  process.stderr.write("\nOnboarding complete.\n");
   process.stderr.write(`  ${join(dir, "USER.md")}\n`);
-  process.stderr.write(`  ${join(dir, "SOUL.md")}\n\n`);
+  process.stderr.write(`  ${join(dir, "SOUL.md")}\n`);
+  if (answers.logseqPath) process.stderr.write(`  logseq_graph: ${answers.logseqPath}\n`);
+  if (answers.slidesPath) process.stderr.write(`  slides_dir: ${answers.slidesPath}\n`);
 }
