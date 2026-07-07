@@ -4,9 +4,10 @@ import { Writable } from "node:stream";
 import { createAgent } from "./agent/create-agent.ts";
 import { NyanclawTui } from "./tui/index.ts";
 import { getKeychainKey, setKeychainKey } from "./keychain.ts";
+import { NYANCLAW_PROVIDER, NYANCLAW_MODEL } from "./config.ts";
 
-const PROVIDER = process.env.NYANCLAW_PROVIDER ?? "opencode-go";
-const MODEL = process.env.NYANCLAW_MODEL ?? "deepseek-v4-flash";
+const PROVIDER = NYANCLAW_PROVIDER;
+const MODEL = NYANCLAW_MODEL;
 const ENV_KEY_MAP: Record<string, string> = {
   "opencode-go": "OPENCODE_API_KEY",
   "openai": "OPENAI_API_KEY",

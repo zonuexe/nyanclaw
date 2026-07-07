@@ -3,10 +3,15 @@ import { parse, NodeType } from "org-mode-ast";
 import { readFile, writeFile, appendFile, mkdir, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { logseqGraph } from "../config.ts";
 
-const LOGSEQ_GRAPH = process.env.LOGSEQ_GRAPH || "/Users/megurine/Dropbox/org";
-const JOURNALS_DIR = join(LOGSEQ_GRAPH, "journals");
-const PAGES_DIR = join(LOGSEQ_GRAPH, "pages");
+// Lazy directory path accessors — env var is resolved on first tool use, not at module init
+function journalsDir() {
+  return join(logseqGraph(), "journals");
+}
+function pagesDir() {
+  return join(logseqGraph(), "pages");
+}
 
 function defineTool(def: {
   name: string;
@@ -120,8 +125,8 @@ export const logseqReadJournal = defineTool({
   execute: async (_toolCallId, params) => {
     const dateStr = params.date as string | undefined;
     const journalPath = dateStr
-      ? join(JOURNALS_DIR, `${journalDate(new Date(dateStr))}.org`)
-      : join(JOURNALS_DIR, `${journalDate(new Date())}.org`);
+      ? join(journalsDir(), `${journalDate(new Date(dateStr))}.org`)
+      : join(journalsDir(), `${journalDate(new Date())}.org`);
 
     try {
       const content = await readFile(journalPath, "utf-8");
@@ -210,8 +215,8 @@ export const logseqWriteBlock = defineTool({
 
     const isJournal = /^\d{4}_\d{2}_\d{2}$/.test(page);
     const filePath = isJournal
-      ? join(JOURNALS_DIR, fileName)
-      : join(PAGES_DIR, fileName);
+      ? join(journalsDir(), fileName)
+      : join(pagesDir(), fileName);
 
     await mkdir(dirname(filePath), { recursive: true });
 
@@ -253,8 +258,8 @@ export const logseqSearch = defineTool({
     const maxResults = (params.maxResults as number | undefined) ?? 20;
 
     const dirs: { name: string; dir: string }[] = [];
-    if (scope === "all" || scope === "journals") dirs.push({ name: "journals", dir: JOURNALS_DIR });
-    if (scope === "all" || scope === "pages") dirs.push({ name: "pages", dir: PAGES_DIR });
+    if (scope === "all" || scope === "journals") dirs.push({ name: "journals", dir: journalsDir() });
+    if (scope === "all" || scope === "pages") dirs.push({ name: "pages", dir: pagesDir() });
 
     const results: { file: string; match: string }[] = [];
 

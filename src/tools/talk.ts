@@ -3,9 +3,7 @@ import { readFile, writeFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
-
-const SLIDES_DIR = process.env.NYANCLAW_SLIDES_DIR || "/Users/megurine/repo/site/slides/slides";
-const LOGSEQ_GRAPH = process.env.LOGSEQ_GRAPH || "/Users/megurine/Dropbox/org";
+import { logseqGraph, slidesDir } from "../config.ts";
 
 function defineTool(def: {
   name: string;
@@ -72,7 +70,7 @@ function slugify(text: string): string {
 /** Read all existing slide YAML files to infer the next date-based prefix. */
 async function nextDatePrefix(): Promise<string> {
   try {
-    const files = await readdir(SLIDES_DIR);
+    const files = await readdir(slidesDir());
     const today = new Date();
     const prefix = today.toISOString().slice(0, 10).replace(/-/g, "");
     // If a file with today's prefix already exists, append a letter
@@ -93,8 +91,8 @@ async function nextDatePrefix(): Promise<string> {
 
 /** Load an existing slide YAML + optional .outline.md. */
 async function loadSlide(slug: string): Promise<{ slide?: TalkSlide; outline?: TalkOutline }> {
-  const yamlPath = join(SLIDES_DIR, `${slug}.yaml`);
-  const outlinePath = join(SLIDES_DIR, `${slug}.outline.md`);
+  const yamlPath = join(slidesDir(), `${slug}.yaml`);
+  const outlinePath = join(slidesDir(), `${slug}.outline.md`);
 
   let slide: TalkSlide | undefined;
   if (existsSync(yamlPath)) {
@@ -118,12 +116,12 @@ async function loadSlide(slug: string): Promise<{ slide?: TalkSlide; outline?: T
 
 /** List all existing talk slugs. */
 async function listSlides(): Promise<{ slug: string; slide: TalkSlide }[]> {
-  const files = await readdir(SLIDES_DIR);
+  const files = await readdir(slidesDir());
   const yamls = files.filter((f) => f.endsWith(".yaml") && !f.startsWith("_"));
   const result: { slug: string; slide: TalkSlide }[] = [];
   for (const f of yamls) {
     try {
-      const raw = await readFile(join(SLIDES_DIR, f), "utf-8");
+      const raw = await readFile(join(slidesDir(), f), "utf-8");
       const slide = YAML.parse(raw) as TalkSlide;
       if (slide?.title) result.push({ slug: f.replace(/\.yaml$/, ""), slide });
     } catch {
@@ -193,7 +191,7 @@ export const talkCreateOutline = defineTool({
     };
 
     // Write outline.md (YAML frontmatter + markdown body)
-    const outlinePath = join(SLIDES_DIR, `${slug}.outline.md`);
+    const outlinePath = join(slidesDir(), `${slug}.outline.md`);
     const outlineYaml = YAML.stringify(outline);
     const outlineBody = outline.abstract
       ? `\n## Abstract\n\n${outline.abstract}\n`
@@ -201,7 +199,7 @@ export const talkCreateOutline = defineTool({
     await writeFile(outlinePath, `---\n${outlineYaml}---\n${outlineBody}`, "utf-8");
 
     // If the user provided enough info, also write a skeleton slide YAML
-    const slideYamlPath = join(SLIDES_DIR, `${slug}.yaml`);
+    const slideYamlPath = join(slidesDir(), `${slug}.yaml`);
     if (!existsSync(slideYamlPath)) {
       const slide: TalkSlide = {
         title,
@@ -274,8 +272,8 @@ export const talkUpdateOutline = defineTool({
   }),
   execute: async (_toolCallId, params) => {
     const slug = params.slug as string;
-    const outlinePath = join(SLIDES_DIR, `${slug}.outline.md`);
-    const slideYamlPath = join(SLIDES_DIR, `${slug}.yaml`);
+    const outlinePath = join(slidesDir(), `${slug}.outline.md`);
+    const slideYamlPath = join(slidesDir(), `${slug}.yaml`);
 
     let outline: TalkOutline;
     let existingBody = "";
@@ -382,7 +380,7 @@ export const talkListOutlines = defineTool({
 
     for (const { slug, slide } of slides) {
       if (result.length >= limit) break;
-      const outlinePath = join(SLIDES_DIR, `${slug}.outline.md`);
+      const outlinePath = join(slidesDir(), `${slug}.outline.md`);
       let status = "finished";
 
       if (existsSync(outlinePath)) {
@@ -407,11 +405,11 @@ export const talkListOutlines = defineTool({
 
     // Also list outlines that don't have slide YAML yet (pure ideas)
     try {
-      const files = await readdir(SLIDES_DIR);
+      const files = await readdir(slidesDir());
       const outlineFiles = files.filter((f) => f.endsWith(".outline.md"));
       for (const f of outlineFiles) {
         if (result.length >= limit) break;
-        const raw = await readFile(join(SLIDES_DIR, f), "utf-8");
+        const raw = await readFile(join(slidesDir(), f), "utf-8");
         const match = raw.match(/^---\n([\s\S]*?)\n---/);
         if (match) {
           const parsed = YAML.parse(match[1]) as TalkOutline;
@@ -468,7 +466,7 @@ export const talkCreateTasks = defineTool({
   }),
   execute: async (_toolCallId, params) => {
     const slug = params.slug as string;
-    const outlinePath = join(SLIDES_DIR, `${slug}.outline.md`);
+    const outlinePath = join(slidesDir(), `${slug}.outline.md`);
 
     let outline: TalkOutline | null = null;
     if (existsSync(outlinePath)) {
@@ -521,7 +519,7 @@ export const talkCreateTasks = defineTool({
 
     // Write to today's Logseq journal as Org-mode entries
     const todayJournal = join(
-      LOGSEQ_GRAPH,
+      logseqGraph(),
       "journals",
       `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, "0")}_${String(now.getDate()).padStart(2, "0")}.org`,
     );
