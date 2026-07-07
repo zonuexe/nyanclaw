@@ -1,5 +1,5 @@
 import * as readline from "node:readline";
-import { writeFileSync, existsSync, readFileSync } from "node:fs";
+import { writeFileSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { workspaceDir } from "../config.ts";
 
@@ -11,36 +11,26 @@ interface InterviewAnswers {
   interactionStyle: string;
 }
 
-const QUESTIONS: { key: keyof InterviewAnswers; prompt: string; default?: string }[] = [
-  {
-    key: "userName",
-    prompt: "What should I call you?",
-  },
-  {
-    key: "timezone",
-    prompt: "What timezone are you in?",
-    default: Intl.DateTimeFormat().resolvedOptions().timeZone,
-  },
-  {
-    key: "roles",
-    prompt:
-      "What do you do? (e.g., OSS developer, programmer, conference speaker)",
-  },
-  {
-    key: "projects",
-    prompt: "What are your main projects or areas of work?",
-  },
-  {
-    key: "interactionStyle",
-    prompt:
-      "Any preferences for how I interact with you? (e.g., be concise, use Japanese, etc.)",
-  },
+const EN_QUESTIONS = [
+  { key: "userName" as const, prompt: "What should I call you?" },
+  { key: "timezone" as const, prompt: "What timezone are you in?", default: Intl.DateTimeFormat().resolvedOptions().timeZone },
+  { key: "roles" as const, prompt: "What do you do? (e.g., OSS developer, programmer, conference speaker)" },
+  { key: "projects" as const, prompt: "What are your main projects or areas of work?" },
+  { key: "interactionStyle" as const, prompt: "Any preferences for how I interact with you?" },
+];
+
+const JA_QUESTIONS = [
+  { key: "userName" as const, prompt: "なんと呼べばよいですか" },
+  { key: "timezone" as const, prompt: "タイムゾーンはどこですか", default: Intl.DateTimeFormat().resolvedOptions().timeZone },
+  { key: "roles" as const, prompt: "どんな活動をしていますか（OSS 開発、プログラマー、登壇など）" },
+  { key: "projects" as const, prompt: "主なプロジェクトや取り組みは何ですか" },
+  { key: "interactionStyle" as const, prompt: "会話のスタイルについて希望はありますか（簡潔に、日本語で、など）" },
 ];
 
 function ask(rl: readline.Interface, question: string, defaultValue?: string): Promise<string> {
   const hint = defaultValue ? ` [${defaultValue}]` : "";
   return new Promise((resolve) => {
-    rl.question(`${question}${hint}: `, (answer) => {
+    rl.question(`\n${question}${hint}: `, (answer) => {
       resolve(answer.trim() || defaultValue || "");
     });
   });
@@ -85,6 +75,18 @@ function containsCjk(text: string): boolean {
  * Determine the dominant language from interview answers.
  * Returns "ja", "ko", "zh", or "en" as a best guess.
  */
+function detectLanguageFromName(name: string): string {
+  if (containsCjk(name)) {
+    const hiragana = (name.match(/[\u3040-\u309F]/g) || []).length;
+    const katakana = (name.match(/[\u30A0-\u30FF]/g) || []).length;
+    const hangul = (name.match(/[\uAC00-\uD7AF]/g) || []).length;
+    if (hiragana + katakana > hangul) return "ja";
+    if (hangul > 0) return "ko";
+    return "zh";
+  }
+  return "en";
+}
+
 function detectLanguage(answers: InterviewAnswers): string {
   const allText = Object.values(answers).join(" ");
   if (containsCjk(allText)) {
@@ -149,6 +151,7 @@ export function needsOnboarding(): boolean {
 
 export async function runOnboarding(): Promise<void> {
   const dir = workspaceDir();
+  mkdirSync(dir, { recursive: true });
 
   process.stderr.write("\n=== nyanclaw onboarding ===\n");
   process.stderr.write("I'd like to learn a bit about you.\n\n");
@@ -167,7 +170,13 @@ export async function runOnboarding(): Promise<void> {
     interactionStyle: "",
   };
 
-  for (const q of QUESTIONS) {
+  // First question always in English to detect language
+  answers.userName = await ask(rl, EN_QUESTIONS[0].prompt);
+  const lang = detectLanguageFromName(answers.userName);
+
+  const questions = lang === "ja" ? JA_QUESTIONS : EN_QUESTIONS;
+  for (let i = 1; i < questions.length; i++) {
+    const q = questions[i];
     answers[q.key] = await ask(rl, q.prompt, q.default);
   }
 
