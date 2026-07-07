@@ -29,8 +29,11 @@ const editorTheme: EditorTheme = {
   },
 };
 
+import type { Config } from "../config.ts";
+
 export interface NyanclawTuiOptions {
   agent: Agent;
+  config: Config;
 }
 
 /**
@@ -43,8 +46,11 @@ export class NyanclawTui {
   private agent: Agent;
   private running = true;
 
+  private config: Config;
+
   constructor(opts: NyanclawTuiOptions) {
     this.agent = opts.agent;
+    this.config = opts.config;
 
     const terminal = new ProcessTerminal();
     this.tui = new TUI(terminal);

@@ -1,32 +1,30 @@
 import { Agent } from "@earendil-works/pi-agent-core";
-import { getModel } from "@earendil-works/pi-ai/compat";
+import type { Model } from "@earendil-works/pi-ai";
 import { SYSTEM_PROMPT } from "./system-prompt.ts";
 import { createTools } from "../tools/index.ts";
+import { buildModels } from "./models.ts";
+import type { ModelProfile } from "../config.ts";
 
-export interface AgentConfig {
-  modelName?: string;
-  modelProvider?: string;
-}
-
-export function createAgent(config?: AgentConfig): Agent {
-  const provider = (config?.modelProvider ?? "opencode-go") as any;
-  const modelName = config?.modelName ?? "deepseek-v4-flash";
+export async function createAgent(profile: ModelProfile): Promise<Agent> {
+  const { models, model } = await buildModels(profile.provider, profile.model);
 
   const agent = new Agent({
     initialState: {
       systemPrompt: SYSTEM_PROMPT,
-      model: getModel(provider, modelName),
+      model,
       tools: createTools(),
     },
     convertToLlm: (messages) =>
       messages.flatMap((m) => {
-        // Pass through standard LLM messages; filter anything else
         if (m.role === "user" || m.role === "assistant" || m.role === "toolResult") {
           return [m];
         }
         return [];
       }),
   });
+
+  (agent as any).__models = models;
+  (agent as any).__model = model;
 
   return agent;
 }

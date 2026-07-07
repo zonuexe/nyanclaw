@@ -29,6 +29,16 @@
 - **Strategy**: No explicit save operation required. Accumulation happens as a side effect of task management and schedule management.
 - **Journal**: Each day's tasks, events, and activity are automatically aggregated into the Logseq journal page.
 
+### Configuration
+
+- **Config file**: `$XDG_CONFIG_HOME/nyanclaw/config.yaml` (fallback `~/.config/nyanclaw/config.yaml`). YAML format.
+- **Model catalog**: `~/.pi/agent/models.json` (pi standard). Built-in pi catalog used as base.
+- **Profiles**: Named model profiles (e.g., `default`, `heavy`) in config.yaml. Each maps to a `provider/model` from the catalog.
+- **Model routing**: Agent-driven auto-selection plus explicit `/model` command.
+- **API key storage**: macOS Keychain only (service: `nyanclaw`, account: provider name). No env var fallback. Prompted interactively on first use.
+- **pi SDK**: `createModels()` — not the compat global API.
+- **All env vars removed**: Paths and settings come from config.yaml only.
+
 ### Interface
 
 - **Primary**: TUI (`@earendil-works/pi-tui`).

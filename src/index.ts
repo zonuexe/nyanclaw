@@ -1,59 +1,42 @@
 #!/usr/bin/env bun
 import * as readline from "node:readline";
 import { Writable } from "node:stream";
+import { loadConfig } from "./config.ts";
 import { createAgent } from "./agent/create-agent.ts";
 import { NyanclawTui } from "./tui/index.ts";
 import { getKeychainKey, setKeychainKey } from "./keychain.ts";
-import { NYANCLAW_PROVIDER, NYANCLAW_MODEL } from "./config.ts";
 
-const PROVIDER = NYANCLAW_PROVIDER;
-const MODEL = NYANCLAW_MODEL;
-const ENV_KEY_MAP: Record<string, string> = {
-  "opencode-go": "OPENCODE_API_KEY",
-  "openai": "OPENAI_API_KEY",
-  "anthropic": "ANTHROPIC_API_KEY",
-  "deepseek": "DEEPSEEK_API_KEY",
-  "groq": "GROQ_API_KEY",
-  "openrouter": "OPENROUTER_API_KEY",
-};
+async function main() {
+  const config = loadConfig();
+  const profile = config.profiles[config.defaultProfile];
 
-async function resolveApiKey(provider: string): Promise<string> {
-  const fromKeychain = getKeychainKey(provider);
-  if (fromKeychain) return fromKeychain;
-
-  const envVar = ENV_KEY_MAP[provider];
-  if (envVar) {
-    const fromEnv = process.env[envVar];
-    if (fromEnv) return fromEnv;
+  const existing = getKeychainKey(profile.provider);
+  if (!existing) {
+    const key = await promptApiKey(profile.provider);
+    setKeychainKey(profile.provider, key);
   }
 
-  const key = await promptApiKey(provider, envVar);
-  setKeychainKey(provider, key);
-  return key;
+  const agent = await createAgent(profile);
+  const tui = new NyanclawTui({ agent, config });
+
+  try {
+    const { execSync } = await import("node:child_process");
+    execSync("gh --version", { encoding: "utf-8", timeout: 2000 });
+    agent.followUp({
+      role: "user",
+      content:
+        "Please sync my GitHub activity: fetch my open Issues and PRs, then write a summary to today's Logseq journal.",
+      timestamp: Date.now(),
+    });
+  } catch {}
+
+  tui.start();
 }
 
-/**
- * Prompt the user for an API key interactively via readline.
- * Uses a muted output stream so the key is not echoed to the terminal.
- */
-function promptApiKey(provider: string, envVar?: string): Promise<string> {
-  const hint = envVar ? ` (or set ${envVar})` : "";
-
-  process.stderr.write(`\nnyanclaw: No API key found for "${provider}"${hint}.\n`);
-  process.stderr.write(`Paste your API key and press Enter: `);
-
-  const muted = new Writable({
-    write(_chunk, _encoding, cb) {
-      cb();
-    },
-  });
-
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: muted,
-    terminal: true,
-  });
-
+async function promptApiKey(provider: string): Promise<string> {
+  process.stderr.write(`\nnyanclaw: Enter API key for "${provider}": `);
+  const muted = new Writable({ write(_c, _e, cb) { cb(); } });
+  const rl = readline.createInterface({ input: process.stdin, output: muted, terminal: true });
   return new Promise((resolve) => {
     rl.question("", (key) => {
       rl.close();
@@ -63,30 +46,7 @@ function promptApiKey(provider: string, envVar?: string): Promise<string> {
   });
 }
 
-const apiKey = await resolveApiKey(PROVIDER);
-
-const envVar = ENV_KEY_MAP[PROVIDER];
-if (envVar) process.env[envVar] = apiKey;
-
-const agent = createAgent({
-  modelProvider: PROVIDER,
-  modelName: MODEL,
+main().catch((err) => {
+  console.error("nyanclaw:", err);
+  process.exit(1);
 });
-
-const tui = new NyanclawTui({ agent });
-
-// Trigger GitHub sync on startup if gh is available
-try {
-  const { execSync } = await import("node:child_process");
-  execSync("gh --version", { encoding: "utf-8", timeout: 2000 });
-  agent.followUp({
-    role: "user",
-    content:
-      "Please sync my GitHub activity: fetch my open Issues and PRs, then write a summary to today's Logseq journal.",
-    timestamp: Date.now(),
-  });
-} catch {
-  // gh not available — skip startup sync
-}
-
-tui.start();
