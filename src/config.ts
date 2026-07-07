@@ -27,6 +27,7 @@ export interface Config {
   defaultProfile: string;
   logseqGraph?: string;
   slidesDir?: string;
+  workspaceDir?: string;
 }
 
 let _cached: Config | null = null;
@@ -66,6 +67,7 @@ export function loadConfig(): Config {
     defaultProfile: parsed.default_profile ?? "default",
     logseqGraph: parsed.logseq_graph || undefined,
     slidesDir: parsed.slides_dir || undefined,
+    workspaceDir: parsed.workspace_dir || undefined,
   };
 
   for (const [name, p] of Object.entries(parsed.profiles) as [string, any][]) {
@@ -105,5 +107,11 @@ export function slidesDir(): string {
   const v = loadConfig().slidesDir;
   if (!v) throw new Error("slides_dir not set in config.yaml");
   return v;
+}
+
+export function workspaceDir(): string {
+  const c = loadConfig();
+  if (c.workspaceDir) return c.workspaceDir;
+  return join(configDirectory(), "workspace");
 }
 
