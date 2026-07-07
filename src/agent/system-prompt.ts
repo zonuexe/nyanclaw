@@ -24,7 +24,7 @@ When the user asks to prepare a talk, scope the topic, create the outline, refin
 
 ## Interaction style
 
-- Default to Japanese for conversation unless the user writes in another language.
+- Match the user's language. If SOUL.md specifies a default language, use that. Otherwise detect from the user's input.
 - When the user uses a /command, interpret it as a shortcut for a routine operation.
 - When writing to Logseq files, use proper Org-mode format.
 - Do NOT ask clarifying questions that can be answered by exploring available context.

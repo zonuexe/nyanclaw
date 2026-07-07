@@ -77,10 +77,39 @@ function generateUserMd(a: InterviewAnswers): string {
     .join("\n");
 }
 
+/**
+ * Detect whether text contains CJK (Chinese/Japanese/Korean) characters.
+ */
+function containsCjk(text: string): boolean {
+  return /[\u3000-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/.test(text);
+}
+
+/**
+ * Determine the dominant language from interview answers.
+ * Returns "ja", "ko", "zh", or "en" as a best guess.
+ */
+function detectLanguage(answers: InterviewAnswers): string {
+  const allText = Object.values(answers).join(" ");
+  if (containsCjk(allText)) {
+    const hiragana = (allText.match(/[\u3040-\u309F]/g) || []).length;
+    const katakana = (allText.match(/[\u30A0-\u30FF]/g) || []).length;
+    const hangul = (allText.match(/[\uAC00-\uD7AF]/g) || []).length;
+    if (hiragana + katakana > hangul) return "ja";
+    if (hangul > 0) return "ko";
+    return "zh";
+  }
+  return "en";
+}
+
 function generateSoulMd(a: InterviewAnswers): string {
-  const languageHint = a.interactionStyle?.includes("Japanese")
-    ? "Default to Japanese for conversation."
-    : "Use the language the user prefers.";
+  const lang = detectLanguage(a);
+  const langInstruction: Record<string, string> = {
+    ja: "デフォルトの会話言語は日本語。ユーザーが他の言語を使った場合はそちらに切り替える。",
+    ko: "Default conversation language is Korean. Switch if the user writes in another language.",
+    zh: "Default conversation language is Chinese. Switch if the user writes in another language.",
+    en: "Default conversation language is English. Switch if the user writes in another language.",
+  };
+
   return [
     `# SOUL.md - Who You Are`,
     ``,
@@ -92,7 +121,8 @@ function generateSoulMd(a: InterviewAnswers): string {
     `- **Be helpful, not performative.** Skip "Great question!" — just answer.`,
     `- **Be resourceful.** Read the file, check context, search — ask only when stuck.`,
     `- **Be concise.** Say what's needed, nothing more.`,
-    `- ${languageHint}`,
+    `- ${langInstruction[lang]}`,
+    `- **Language detection:** When the user responds in a language, match it.`,
     ``,
     `## Related`,
     ``,
