@@ -5,10 +5,15 @@ import { loadConfig } from "./config.ts";
 import { createAgent } from "./agent/create-agent.ts";
 import { NyanclawTui } from "./tui/index.ts";
 import { getKeychainKey, setKeychainKey } from "./keychain.ts";
+import { needsOnboarding, runOnboarding } from "./persona/interview.ts";
 
 async function main() {
   const config = loadConfig();
   const profile = config.profiles[config.defaultProfile];
+
+  if (needsOnboarding()) {
+    await runOnboarding();
+  }
 
   const existing = getKeychainKey(profile.provider);
   if (!existing) {

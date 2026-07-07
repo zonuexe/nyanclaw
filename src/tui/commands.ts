@@ -2,6 +2,7 @@ import type { Agent } from "@earendil-works/pi-agent-core";
 import type { AutocompleteItem, SlashCommand } from "@earendil-works/pi-tui";
 import { deleteKeychainKey } from "../keychain.ts";
 import { loadConfig } from "../config.ts";
+import { runOnboarding } from "../persona/interview.ts";
 
 export interface CommandDef {
   name: string;
@@ -53,6 +54,14 @@ export const commands: CommandDef[] = [
         timestamp: Date.now(),
       });
       return "Reading journal...";
+    },
+  },
+  {
+    name: "onboard",
+    description: "Re-run the onboarding interview to update USER.md and SOUL.md.",
+    run: async (_agent, _args) => {
+      await runOnboarding();
+      return "Onboarding complete. Restart nyanclaw for changes to take effect.";
     },
   },
   {
