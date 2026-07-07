@@ -87,18 +87,29 @@ export class NyanclawTui {
     this.agent.subscribe((event) => this.handleAgentEvent(event));
   }
 
+  private loadingComponent: Text | null = null;
+  private responseStarted = false;
+
   private handleAgentEvent(event: AgentEvent): void {
     switch (event.type) {
       case "turn_start":
-        // Could show a loading indicator
+        this.responseStarted = false;
+        this.loadingComponent = new Text("Processing...", 0, 0);
+        this.messageContainer.addChild(this.loadingComponent);
+        this.tui.requestRender();
         break;
 
       case "message_update":
-        // Stream text deltas in real-time
+        if (this.loadingComponent) {
+          this.messageContainer.removeChild(this.loadingComponent);
+          this.loadingComponent = null;
+          this.responseStarted = false;
+        }
+        if (event.assistantMessageEvent.type === "text_delta" && !this.responseStarted) {
+          this.responseStarted = true;
+        }
         if (event.assistantMessageEvent.type === "text_delta") {
-          const text = event.assistantMessageEvent.delta;
-          // Get or update the last assistant message component
-          this.updateAssistantResponse(text);
+          this.updateAssistantResponse(event.assistantMessageEvent.delta);
         }
         break;
 
@@ -109,7 +120,12 @@ export class NyanclawTui {
         break;
 
       case "agent_end":
-        // Agent finished processing — nothing extra needed
+        this.responseStarted = false;
+        if (this.loadingComponent) {
+          this.messageContainer.removeChild(this.loadingComponent);
+          this.loadingComponent = null;
+          this.tui.requestRender();
+        }
         break;
     }
   }
