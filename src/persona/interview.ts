@@ -142,18 +142,6 @@ function generateSoulMd(a: InterviewAnswers): string {
   ].join("\n");
 }
 
-function isTemplateFile(filePath: string): boolean {
-  if (!existsSync(filePath)) return true;
-  const content = readFileSync(filePath, "utf-8").trim();
-  if (!content) return true;
-  // Check if it's the default seed (contains seed marker)
-  if (content.includes("Use this file to define the agent") ||
-      content.includes("See docs.adr/0002-bootstrap-file-system.md for details")) {
-    return true;
-  }
-  return false;
-}
-
 function validateLogseqPath(path: string): { path: string; warning?: string } {
   const journals = join(path, "journals");
   const pages = join(path, "pages");
@@ -190,19 +178,57 @@ function writeConfigPaths(logseqPath: string, slidesPath: string): void {
   }
 }
 
-export function needsOnboarding(): boolean {
+function readExistingAnswers(): Partial<InterviewAnswers> {
+  const result: Partial<InterviewAnswers> = {};
   const dir = workspaceDir();
-  const userMd = join(dir, "USER.md");
-  const soulMd = join(dir, "SOUL.md");
-  return isTemplateFile(userMd) || isTemplateFile(soulMd);
+
+  const userPath = join(dir, "USER.md");
+  if (existsSync(userPath)) {
+    const content = readFileSync(userPath, "utf-8");
+    const fieldMap: Record<string, keyof InterviewAnswers> = {
+      "Name": "userName",
+      "Timezone": "timezone",
+      "Roles": "roles",
+      "Projects": "projects",
+    };
+    for (const [label, key] of Object.entries(fieldMap)) {
+      const re = new RegExp(`\\*\\*${label}:\\*\\*\\s*(.+)`);
+      const m = content.match(re);
+      if (m) result[key] = m[1].trim();
+    }
+    const prefMatch = content.match(/## Interaction preferences\n\n(.+)/);
+    if (prefMatch) result.interactionStyle = prefMatch[1].trim();
+  }
+
+  const configPath = join(configDirectory(), "config.yaml");
+  if (existsSync(configPath)) {
+    const content = readFileSync(configPath, "utf-8");
+    const lg = content.match(/^logseq_graph:\s*(.+)$/m);
+    if (lg) result.logseqPath = lg[1].trim();
+    const sd = content.match(/^slides_dir:\s*(.+)$/m);
+    if (sd) result.slidesPath = sd[1].trim();
+  }
+
+  return result;
+}
+
+export function needsOnboarding(): boolean {
+  const existing = readExistingAnswers();
+  return !existing.userName || !existing.logseqPath;
 }
 
 export async function runOnboarding(): Promise<void> {
   const dir = workspaceDir();
   mkdirSync(dir, { recursive: true });
 
-  process.stderr.write("\n=== nyanclaw onboarding ===\n");
-  process.stderr.write("I'd like to learn a bit about you.\n\n");
+  const existing = readExistingAnswers();
+  const hasConfig = existing.logseqPath && existing.slidesPath;
+  const hasProfile = existing.userName && existing.roles;
+
+  if (hasConfig && hasProfile) {
+    process.stderr.write("All onboarding info already filled. Edit USER.md / SOUL.md directly to update.\n");
+    return;
+  }
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -211,36 +237,55 @@ export async function runOnboarding(): Promise<void> {
   });
 
   const answers: InterviewAnswers = {
-    userName: "", timezone: "", roles: "", projects: "", interactionStyle: "",
-    logseqPath: "", slidesPath: "",
+    userName: existing.userName ?? "",
+    timezone: existing.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+    roles: existing.roles ?? "",
+    projects: existing.projects ?? "",
+    interactionStyle: existing.interactionStyle ?? "",
+    logseqPath: existing.logseqPath ?? "",
+    slidesPath: existing.slidesPath ?? "",
   };
 
-  answers.userName = await ask(rl, EN_QUESTIONS[0].prompt);
-  const lang = detectLanguageFromName(answers.userName);
+  const needsName = !existing.userName;
+  let lang: string;
+  if (needsName) {
+    const name = await ask(rl, EN_QUESTIONS[0].prompt);
+    answers.userName = name;
+    lang = detectLanguageFromName(name);
+  } else {
+    lang = detectLanguageFromName(answers.userName);
+  }
 
   const questions = lang === "ja" ? JA_QUESTIONS : EN_QUESTIONS;
-  for (let i = 1; i < questions.length; i++) {
-    answers[questions[i].key] = await ask(rl, questions[i].prompt, questions[i].default);
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    const key = q.key;
+    // Skip userName if already filled (first question asked above)
+    if (key === "userName" && !needsName) continue;
+    // Skip if already filled from existing data
+    if (existing[key as keyof typeof existing]) continue;
+    answers[key] = await ask(rl, q.prompt, q.default);
   }
 
   const extraQs = lang === "ja" ? EXTRA_JA : EXTRA_EN;
-  const logseqAnswer = await ask(rl, extraQs[0].prompt);
-  if (logseqAnswer) {
-    const validated = validateLogseqPath(logseqAnswer);
-    answers.logseqPath = validated.path;
-    if (validated.warning) {
-      process.stderr.write(`  ${validated.warning}\n`);
+  if (!existing.logseqPath) {
+    const logseqAnswer = await ask(rl, extraQs[0].prompt);
+    if (logseqAnswer) {
+      const validated = validateLogseqPath(logseqAnswer);
+      answers.logseqPath = validated.path;
+      if (validated.warning) process.stderr.write(`  ${validated.warning}\n`);
     }
   }
 
-  const slidesAnswer = await ask(rl, extraQs[1].prompt);
-  if (slidesAnswer) answers.slidesPath = slidesAnswer;
+  if (!existing.slidesPath) {
+    const slidesAnswer = await ask(rl, extraQs[1].prompt);
+    if (slidesAnswer) answers.slidesPath = slidesAnswer;
+  }
 
   rl.close();
 
   writeFileSync(join(dir, "USER.md"), generateUserMd(answers), "utf-8");
   writeFileSync(join(dir, "SOUL.md"), generateSoulMd(answers), "utf-8");
-
   writeConfigPaths(answers.logseqPath, answers.slidesPath);
 
   process.stderr.write("\nOnboarding complete.\n");
