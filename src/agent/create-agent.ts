@@ -9,8 +9,8 @@ export interface AgentConfig {
 }
 
 export function createAgent(config?: AgentConfig): Agent {
-  const provider = (config?.modelProvider ?? "anthropic") as any;
-  const modelName = config?.modelName ?? "claude-sonnet-4-20250514";
+  const provider = (config?.modelProvider ?? "opencode-go") as any;
+  const modelName = config?.modelName ?? "deepseek-v4-flash";
 
   const agent = new Agent({
     initialState: {
