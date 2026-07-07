@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
 import * as readline from "node:readline";
-import { Writable } from "node:stream";
 import { loadConfig } from "./config.ts";
 import { createAgent } from "./agent/create-agent.ts";
 import { NyanclawTui } from "./tui/index.ts";
@@ -40,8 +39,7 @@ async function main() {
 
 async function promptApiKey(provider: string): Promise<string> {
   process.stderr.write(`\nnyanclaw: Enter API key for "${provider}": `);
-  const muted = new Writable({ write(_c, _e, cb) { cb(); } });
-  const rl = readline.createInterface({ input: process.stdin, output: muted, terminal: true });
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr, terminal: true });
   return new Promise((resolve) => {
     rl.question("", (key) => {
       rl.close();

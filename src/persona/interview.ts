@@ -1,5 +1,4 @@
 import * as readline from "node:readline";
-import { Writable } from "node:stream";
 import { writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { workspaceDir } from "../config.ts";
@@ -37,8 +36,6 @@ const QUESTIONS: { key: keyof InterviewAnswers; prompt: string; default?: string
       "Any preferences for how I interact with you? (e.g., be concise, use Japanese, etc.)",
   },
 ];
-
-const muted = new Writable({ write(_c, _e, cb) { cb(); } });
 
 function ask(rl: readline.Interface, question: string, defaultValue?: string): Promise<string> {
   const hint = defaultValue ? ` [${defaultValue}]` : "";
@@ -158,7 +155,7 @@ export async function runOnboarding(): Promise<void> {
 
   const rl = readline.createInterface({
     input: process.stdin,
-    output: muted,
+    output: process.stderr,
     terminal: true,
   });
 
