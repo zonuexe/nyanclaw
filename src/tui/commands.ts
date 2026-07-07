@@ -3,6 +3,7 @@ import type { AutocompleteItem, SlashCommand } from "@earendil-works/pi-tui";
 import { deleteKeychainKey } from "../keychain.ts";
 import { loadConfig } from "../config.ts";
 import { runOnboarding } from "../persona/interview.ts";
+import { ghSyncAll } from "../tools/gh-sync.ts";
 
 export interface CommandDef {
   name: string;
@@ -24,16 +25,18 @@ export const commands: CommandDef[] = [
   },
   {
     name: "sync-gh",
-    description: "Sync GitHub Issues and PRs into Logseq",
-    run: async (agent, _args) => {
-      // Trigger the agent to run GitHub sync
-      agent.followUp({
-        role: "user",
-        content:
-          "Please sync my GitHub Issues and PRs. List my open issues (both created and assigned) and my open PRs, then write a summary to today's Logseq journal.",
-        timestamp: Date.now(),
-      });
-      return "GitHub sync triggered. The agent will process it after the current turn.";
+    description: "Sync GitHub: fetch watched repos news + maintained issues into Logseq",
+    run: async (_agent, _args) => {
+      const result = await ghSyncAll.execute("", {});
+      return result.content[0]?.text || "gh_sync_all completed.";
+    },
+  },
+  {
+    name: "gh-sync-all",
+    description: "Alias for sync-gh",
+    run: async (_agent, _args) => {
+      const result = await ghSyncAll.execute("", {});
+      return result.content[0]?.text || "gh_sync_all completed.";
     },
   },
   {
@@ -76,10 +79,5 @@ export const commands: CommandDef[] = [
 ];
 
 export function commandAutocompleteItems(): (AutocompleteItem | SlashCommand)[] {
-  return commands.map((c) => ({
-    name: c.name,
-    description: c.description,
-    value: c.name,
-    label: c.name,
-  }));
+  return commands.map((c) => ({ name: c.name, description: c.description }));
 }
