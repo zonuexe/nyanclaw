@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -eu
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR | \
+  grep -E '\.(ts|js|json|yaml|yml|env|md)$' | \
+  grep -v '\.secretlintrc' || true)
+
+if [ -z "$STAGED" ]; then
+  exit 0
+fi
+
+echo "$STAGED" | while IFS= read -r file; do
+  if [ -f "$file" ]; then
+    if ! npx --no-install secretlint "$file" 2>/dev/null; then
+      echo "secretlint: API key or secret detected in $file"
+      echo "Remove the secret and try again."
+      exit 1
+    fi
+  fi
+done

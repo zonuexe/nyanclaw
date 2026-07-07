@@ -6,7 +6,9 @@
   "module": "src/index.ts",
   "scripts": {
     "dev": "bun run src/index.ts",
-    "start": "bun run src/index.ts"
+    "start": "bun run src/index.ts",
+    "lint:secrets": "secretlint 'src/**/*.ts' '*.json' '*.yaml'",
+    "lint": "bun run lint:secrets && bun run tsc --noEmit"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.80.3",
@@ -15,7 +17,9 @@
     "org-mode-ast": "^0.13.5"
   },
   "devDependencies": {
+    "@secretlint/secretlint-rule-preset-recommend": "^13.0.2",
     "@types/bun": "latest",
+    "secretlint": "^13.0.2",
     "typescript": "^5"
   }
 }
