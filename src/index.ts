@@ -73,4 +73,19 @@ const agent = createAgent({
 });
 
 const tui = new NyanclawTui({ agent });
+
+// Trigger GitHub sync on startup if gh is available
+try {
+  const { execSync } = await import("node:child_process");
+  execSync("gh --version", { encoding: "utf-8", timeout: 2000 });
+  agent.followUp({
+    role: "user",
+    content:
+      "Please sync my GitHub activity: fetch my open Issues and PRs, then write a summary to today's Logseq journal.",
+    timestamp: Date.now(),
+  });
+} catch {
+  // gh not available — skip startup sync
+}
+
 tui.start();
