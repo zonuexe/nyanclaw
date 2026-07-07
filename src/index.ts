@@ -20,12 +20,12 @@ async function main() {
   const tui = new NyanclawTui({ agent, config });
 
   try {
-    const { execSync } = await import("node:child_process");
-    execSync("gh --version", { encoding: "utf-8", timeout: 2000 });
+    const { execSync: exec } = await import("node:child_process");
+    exec("gh --version", { encoding: "utf-8", timeout: 2000 });
     agent.followUp({
       role: "user",
       content:
-        "Please sync my GitHub activity: fetch my open Issues and PRs, then write a summary to today's Logseq journal.",
+        "Run gh_sync_all to sync my GitHub watched repos and maintained repos.",
       timestamp: Date.now(),
     });
   } catch {}
