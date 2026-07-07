@@ -23,6 +23,7 @@ export async function createAgent(profile: ModelProfile): Promise<Agent> {
         }
         return [];
       }),
+    streamFn: (m, ctx, opts) => models.stream(m, ctx, opts),
   });
 
   (agent as any).__models = models;
