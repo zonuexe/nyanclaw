@@ -2,6 +2,7 @@ import {
   TUI,
   Text,
   Editor,
+  Markdown,
   ProcessTerminal,
   Container,
   matchesKey,
@@ -9,11 +10,29 @@ import {
   CombinedAutocompleteProvider,
   type EditorTheme,
   type SlashCommand,
+  type MarkdownTheme,
 } from "@earendil-works/pi-tui";
 import type { Agent, AgentEvent } from "@earendil-works/pi-agent-core";
 import { commands, commandAutocompleteItems } from "./commands.ts";
 
 const MINIMAL_EDITOR_HEIGHT = 3;
+
+const markdownTheme: MarkdownTheme = {
+  heading: (s) => `\x1b[1m\x1b[38;5;39m${s}\x1b[39m\x1b[22m`,
+  link: (s) => `\x1b[4m\x1b[38;5;33m${s}\x1b[39m\x1b[24m`,
+  linkUrl: (s) => `\x1b[38;5;33m${s}\x1b[39m`,
+  code: (s) => `\x1b[48;5;236m\x1b[38;5;203m${s}\x1b[39m\x1b[49m`,
+  codeBlock: (s) => `\x1b[48;5;236m\x1b[38;5;180m${s}\x1b[39m\x1b[49m`,
+  codeBlockBorder: (s) => `\x1b[38;5;240m${s}\x1b[39m`,
+  quote: (s) => `\x1b[38;5;245m${s}\x1b[39m`,
+  quoteBorder: (s) => `\x1b[38;5;240m${s}\x1b[39m`,
+  hr: (s) => `\x1b[38;5;240m${s}\x1b[39m`,
+  listBullet: (s) => `\x1b[38;5;39m${s}\x1b[39m`,
+  bold: (s) => `\x1b[1m${s}\x1b[22m`,
+  italic: (s) => `\x1b[3m${s}\x1b[23m`,
+  strikethrough: (s) => `\x1b[9m${s}\x1b[29m`,
+  underline: (s) => `\x1b[4m${s}\x1b[24m`,
+};
 
 /**
  * Minimal theme for the editor.
@@ -131,16 +150,16 @@ export class NyanclawTui {
   }
 
   private assistantResponseText = "";
-  private assistantTextComponent: Text | null = null;
+  private assistantMdComponent: Markdown | null = null;
 
   private updateAssistantResponse(delta: string): void {
     this.assistantResponseText += delta;
 
-    if (!this.assistantTextComponent) {
-      this.assistantTextComponent = new Text(this.assistantResponseText, 1, 0);
-      this.messageContainer.addChild(this.assistantTextComponent);
+    if (!this.assistantMdComponent) {
+      this.assistantMdComponent = new Markdown(this.assistantResponseText, 1, 0, markdownTheme);
+      this.messageContainer.addChild(this.assistantMdComponent);
     } else {
-      this.assistantTextComponent.setText(this.assistantResponseText);
+      this.assistantMdComponent.setText(this.assistantResponseText);
     }
 
     this.tui.requestRender();
@@ -148,7 +167,7 @@ export class NyanclawTui {
 
   private finalizeAssistantResponse(): void {
     this.assistantResponseText = "";
-    this.assistantTextComponent = null;
+    this.assistantMdComponent = null;
     this.tui.requestRender();
   }
 
