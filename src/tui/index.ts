@@ -13,6 +13,7 @@ import {
   type SlashCommand,
   type MarkdownTheme,
 } from "@earendil-works/pi-tui";
+import { estimateTokens } from "@earendil-works/pi-agent-core";
 import type { Agent, AgentEvent } from "@earendil-works/pi-agent-core";
 import { commands, commandAutocompleteItems } from "./commands.ts";
 
@@ -79,6 +80,9 @@ export class NyanclawTui {
     this.messageContainer = new Container();
     this.tui.addChild(this.messageContainer);
 
+    this.statusBar = new Text(this.buildStatusText(), 0, 0);
+    this.tui.addChild(this.statusBar);
+
     // Editor at the bottom
     const provider = new CombinedAutocompleteProvider(
       commandAutocompleteItems() as SlashCommand[],
@@ -107,6 +111,7 @@ export class NyanclawTui {
     this.agent.subscribe((event) => this.handleAgentEvent(event));
   }
 
+  private statusBar: Text;
   private loader: CancellableLoader | null = null;
 
   private handleAgentEvent(event: AgentEvent): void {
@@ -139,6 +144,8 @@ export class NyanclawTui {
 
       case "agent_end":
         this.hideLoader();
+        this.refreshStatusBar();
+        this.tui.requestRender();
         break;
     }
   }
@@ -171,7 +178,31 @@ export class NyanclawTui {
   private finalizeAssistantResponse(): void {
     this.assistantResponseText = "";
     this.assistantMdComponent = null;
+    this.refreshStatusBar();
     this.tui.requestRender();
+  }
+
+  private buildStatusText(): string {
+    const messages = this.agent.state.messages;
+    const model = this.agent.state.model;
+    const ctxTotal = model?.contextWindow ?? 128000;
+
+    let used = 0;
+    for (const msg of messages) {
+      try { used += estimateTokens(msg); } catch { used += 100; }
+    }
+
+    const pct = ctxTotal > 0 ? Math.round((used / ctxTotal) * 100) : 0;
+    const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+
+    const ctx = `${fmt(used)} / ${fmt(ctxTotal)} (${pct}%)`;
+    const modelStr = `${this.config.defaultProfile}  ${model?.provider ?? "?"}/${model?.id ?? "?"}`;
+
+    return `${ctx}  |  ${modelStr}`;
+  }
+
+  private refreshStatusBar(): void {
+    this.statusBar.setText(this.buildStatusText());
   }
 
   /**
