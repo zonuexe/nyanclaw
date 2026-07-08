@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { execSync } from "node:child_process";
-import { readFileSync, existsSync, writeFileSync, readdirSync, mkdirSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, readdirSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { logseqGraph } from "../config.ts";
 
@@ -22,19 +22,23 @@ function defineTool(def: {
 // Logseq page helpers (filesystem-based, supports .org and .md)
 // ---------------------------------------------------------------------------
 
+function logseqEncode(name: string): string {
+  return name.replace(/:/g, "%3A").replace(/\//g, "%2F");
+}
+
 function pagePath(name: string): string {
   const graph = logseqGraph();
-  const encodedName = name.replace(/\//g, "%2F");
+  const encoded = logseqEncode(name);
   const candidates = [
     join(graph, "pages", `${name}.org`),
     join(graph, "pages", `${name}.md`),
-    join(graph, "pages", `${encodedName}.org`),
-    join(graph, "pages", `${encodedName}.md`),
+    join(graph, "pages", `${encoded}.org`),
+    join(graph, "pages", `${encoded}.md`),
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;
   }
-  return join(graph, "pages", `${encodedName}.org`);
+  return join(graph, "pages", `${encoded}.org`);
 }
 
 function readPage(name: string): string | null {
@@ -45,11 +49,22 @@ function readPage(name: string): string | null {
 
 function writePage(name: string, content: string): void {
   const graph = logseqGraph();
-  const encodedName = name.replace(/\//g, "%2F");
-  const p = join(graph, "pages", `${encodedName}.org`);
+  const encoded = logseqEncode(name);
+  const p = join(graph, "pages", `${encoded}.org`);
+  migrateToEncodedFormat(name, encoded, graph);
   const dir = p.substring(0, p.lastIndexOf("/"));
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(p, content, "utf-8");
+}
+
+/** Logseq changed its page naming: move old bare-`:` files to `%3A`-encoded names. */
+function migrateToEncodedFormat(raw: string, encoded: string, graph: string): void {
+  if (raw === encoded) return;
+  const oldPath = join(graph, "pages", `${raw}.org`);
+  const newPath = join(graph, "pages", `${encoded}.org`);
+  if (existsSync(oldPath) && !existsSync(newPath)) {
+    try { renameSync(oldPath, newPath); } catch {}
+  }
 }
 
 // ---------------------------------------------------------------------------
