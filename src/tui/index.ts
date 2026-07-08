@@ -76,14 +76,9 @@ export class NyanclawTui {
     const terminal = new ProcessTerminal();
     this.tui = new TUI(terminal);
 
-    // Message area (scrollable container above editor)
     this.messageContainer = new Container();
     this.tui.addChild(this.messageContainer);
 
-    this.statusBar = new Text(this.buildStatusText(), 0, 0);
-    this.tui.addChild(this.statusBar);
-
-    // Editor at the bottom
     const provider = new CombinedAutocompleteProvider(
       commandAutocompleteItems() as SlashCommand[],
       process.cwd(),
@@ -111,7 +106,8 @@ export class NyanclawTui {
     this.agent.subscribe((event) => this.handleAgentEvent(event));
   }
 
-  private statusBar: Text;
+  private statusBarText: string = "";
+  private statusOverlay: Text | null = null;
   private loader: CancellableLoader | null = null;
 
   private handleAgentEvent(event: AgentEvent): void {
@@ -202,7 +198,24 @@ export class NyanclawTui {
   }
 
   private refreshStatusBar(): void {
-    this.statusBar.setText(this.buildStatusText());
+    if (!this.statusOverlay) return;
+    this.statusBarText = this.buildStatusText();
+    this.statusOverlay.setText(`\x1b[38;5;245m${this.statusBarText}\x1b[39m`);
+    this.tui.requestRender();
+  }
+
+  private ensureOverlay(): void {
+    if (this.statusOverlay) return;
+    this.statusBarText = this.buildStatusText();
+    const styled = `\x1b[38;5;245m${this.statusBarText}\x1b[39m`;
+    this.statusOverlay = new Text(styled, 0, 0);
+    this.tui.showOverlay(this.statusOverlay, {
+      anchor: "bottom-right",
+      offsetX: -1,
+      offsetY: -1,
+      nonCapturing: true,
+    });
+    this.tui.requestRender();
   }
 
   /**
@@ -252,6 +265,7 @@ export class NyanclawTui {
   start(): void {
     const welcome = new Text("Welcome to nyanclaw. Type /help for commands.", 1, 0);
     this.messageContainer.addChild(welcome);
+    this.ensureOverlay();
     this.tui.requestRender();
     this.tui.start();
   }
