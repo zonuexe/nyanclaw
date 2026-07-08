@@ -487,36 +487,40 @@ function updateDashboard(_content: string, _repos?: string[]): void {
     }
   }
 
-  // Build dashboard Org content
   const maintContent = readPage("GitHub/maintains");
   const watchContent = readPage("GitHub/watches");
   const today = new Date().toISOString().slice(0, 10);
 
-  let dash = `- Issues\n`;
+  const lines: string[] = [];
+
+  lines.push("* Issues");
   if (maintContent) {
     const targets = extractGhLinks(maintContent);
     for (const t of targets) {
-      dash += `\t- [[GH:${t}]]\n`;
+      lines.push(`** [[GH:${t}]]`);
       if (recentRepos.includes(`GH:${t}/news`)) {
-        dash += `\t\t- [[GH:${t}/news]]\n`;
+        lines.push(`*** [[GH:${t}/news]]`);
       }
     }
   }
 
-  dash += `- Pull Requests\n\t- (run gh_sync to update)\n`;
+  lines.push("* Pull Requests");
+  lines.push("** (run gh_sync to update)");
 
-  dash += `- Watches\n`;
+  lines.push("* Watches");
   if (watchContent) {
     const repos = extractGhLinks(watchContent);
     for (const r of repos) {
-      dash += `\t- [[GH:${r}]]\n`;
+      lines.push(`** [[GH:${r}]]`);
       if (recentRepos.includes(`GH:${r}/news`)) {
-        dash += `\t\t- [[GH:${r}/news]] (updated: ${today})\n`;
+        lines.push(`*** [[GH:${r}/news]] (updated: ${today})`);
       }
     }
   }
 
-  dash += `\n- [[GitHub/watches]]\n- [[GitHub/maintains]]\n`;
+  lines.push("");
+  lines.push("* [[GitHub/watches]]");
+  lines.push("* [[GitHub/maintains]]");
 
-  writePage("GitHub", dash);
+  writePage("GitHub", lines.join("\n"));
 }
