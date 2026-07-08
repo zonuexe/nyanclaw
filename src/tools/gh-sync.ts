@@ -155,6 +155,23 @@ function buildTodayNews(repo: string): string[] {
 
   lines.push(`* ${dateLabel}`);
 
+  // My open Issues & PRs in this repo
+  const myIssuesRaw = gh(`search issues --repo "${repo}" --author @me --state open --limit 10 --json number,title,state,updatedAt`);
+  const myIssues = myIssuesRaw ? JSON.parse(myIssuesRaw) as any[] : [];
+  const myPrsRaw = gh(`search prs --repo "${repo}" --author @me --state open --limit 10 --json number,title,state,updatedAt,headRefName`);
+  const myPrs = myPrsRaw ? JSON.parse(myPrsRaw) as any[] : [];
+  if (myIssues.length > 0 || myPrs.length > 0) {
+    lines.push("** My Activity");
+    for (const pr of myPrs) {
+      const updated = (pr.updatedAt || "").slice(0, 10);
+      lines.push(`*** [#${pr.number}] ${pr.title} (PR, ${pr.state}, updated: ${updated})`);
+    }
+    for (const iss of myIssues) {
+      const updated = (iss.updatedAt || "").slice(0, 10);
+      lines.push(`*** [#${iss.number}] ${iss.title} (issue, ${iss.state}, updated: ${updated})`);
+    }
+  }
+
   // Open PRs
   const prsRaw = gh(`search prs --repo "${repo}" --state open --sort updated --limit 20 --json number,title,state,createdAt,updatedAt,headRefName`);
   const prs = prsRaw ? JSON.parse(prsRaw) as any[] : [];
