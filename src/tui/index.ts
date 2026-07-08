@@ -239,9 +239,8 @@ export class NyanclawTui {
       if (cmd) {
         const result = await cmd.run(this.agent, args);
         if (result) {
-          // Show command result
-          const resultText = new Text(result, 1, 0);
-          this.messageContainer.addChild(resultText);
+          const resultMd = new Markdown(result, 1, 0, markdownTheme);
+          this.messageContainer.addChild(resultMd);
           this.tui.requestRender();
         }
         return;
