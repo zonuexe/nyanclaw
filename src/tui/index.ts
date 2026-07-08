@@ -235,7 +235,10 @@ export class NyanclawTui {
       const parts = text.slice(1).split(/\s+/);
       const cmdName = parts[0];
       const args = parts.slice(1);
-      const cmd = commands.find((c) => c.name === cmdName);
+      let cmd = commands.find((c) => c.name === cmdName);
+      if (!cmd) {
+        cmd = commands.find((c) => c.name.startsWith(cmdName));
+      }
       if (cmd) {
         const result = await cmd.run(this.agent, args);
         if (result) {
