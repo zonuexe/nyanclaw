@@ -1,7 +1,7 @@
 import type { Agent } from "@earendil-works/pi-agent-core";
 import type { AutocompleteItem, SlashCommand } from "@earendil-works/pi-tui";
 import { deleteKeychainKey } from "../keychain.ts";
-import { loadConfig } from "../config.ts";
+import { loadConfig, type Config } from "../config.ts";
 import { runOnboarding } from "../persona/interview.ts";
 import { ghSyncAll } from "../tools/gh-sync.ts";
 
@@ -57,6 +57,40 @@ export const commands: CommandDef[] = [
         timestamp: Date.now(),
       });
       return "Reading journal...";
+    },
+  },
+  {
+    name: "model",
+    description: "Show current model profile or switch to another. Usage: /model, /model list, /model <profile-name>",
+    run: async (agent, args) => {
+      const config = loadConfig();
+      const names = Object.keys(config.profiles);
+      const currentKey = config.defaultProfile;
+      const current = config.profiles[currentKey];
+
+      if (args.length === 0 || args[0] === "list") {
+        const lines = names.map((n) => {
+          const p = config.profiles[n];
+          const mark = n === currentKey ? " *" : " ";
+          return `- **${n}**${mark} — \`${p.provider}/${p.model}\``;
+        });
+        return `## Model Profiles\n\n${lines.join("\n")}\n\nCurrent: **${currentKey}** (\`${current.provider}/${current.model}\`)\n\nSwitch with: \`/model <name>\``;
+      }
+
+      const target = args[0];
+      const profile = config.profiles[target];
+      if (!profile) {
+        return `Profile "${target}" not found. Available: ${names.join(", ")}`;
+      }
+
+      // Switch the agent's model — next turn uses the new one
+      const models = (agent as any).__models;
+      if (!models) return "Error: models not available.";
+      const newModel = models.getModel(profile.provider as any, profile.model);
+      if (!newModel) return `Model "${profile.provider}/${profile.model}" not found in catalog.`;
+      agent.state.model = newModel;
+      config.defaultProfile = target;
+      return `Switched to profile **${target}** (\`${profile.provider}/${profile.model}\`). Next turn will use this model.`;
     },
   },
   {

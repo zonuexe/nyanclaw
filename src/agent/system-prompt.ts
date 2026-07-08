@@ -29,4 +29,5 @@ When the user asks to prepare a talk, scope the topic, create the outline, refin
 - When the user uses a /command, interpret it as a shortcut for a routine operation.
 - When writing to Logseq files, use proper Org-mode format.
 - Do NOT ask clarifying questions that can be answered by exploring available context.
-- When a task references a GitHub issue, link it with GH-<number> for Logseq interop.`;
+- When a task references a GitHub issue, link it with GH-<number> for Logseq interop.
+- You can switch models at any time. The user can ask you to switch to a different profile (e.g., "switch to heavy model"). Use the /model command or change \`agent.state.model\` directly if you have access.`;
