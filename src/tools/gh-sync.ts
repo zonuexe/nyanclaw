@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { execSync } from "node:child_process";
-import { readFileSync, existsSync, writeFileSync, readdirSync, mkdirSync, renameSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, readdirSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { logseqGraph } from "../config.ts";
 
@@ -62,7 +62,10 @@ function migrateToEncodedFormat(raw: string, encoded: string, graph: string): vo
   if (raw === encoded) return;
   const oldPath = join(graph, "pages", `${raw}.org`);
   const newPath = join(graph, "pages", `${encoded}.org`);
-  if (existsSync(oldPath) && !existsSync(newPath)) {
+  if (!existsSync(oldPath)) return;
+  if (existsSync(newPath)) {
+    try { unlinkSync(oldPath); } catch {}
+  } else {
     try { renameSync(oldPath, newPath); } catch {}
   }
 }
