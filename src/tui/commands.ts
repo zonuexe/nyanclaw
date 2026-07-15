@@ -4,6 +4,13 @@ import { deleteKeychainKey } from "../keychain.ts";
 import { loadConfig, type Config } from "../config.ts";
 import { runOnboarding } from "../persona/interview.ts";
 import { ghSyncAll } from "../tools/gh-sync.ts";
+import {
+  applyProposal,
+  createProposal,
+  listPendingProposals,
+  rejectProposal,
+  type RecordType,
+} from "../records/index.ts";
 
 export interface CommandDef {
   name: string;
@@ -54,6 +61,94 @@ export const commands: CommandDef[] = [
     run: async (agent, _args) => {
       agent.reset();
       return "Conversation cleared.";
+    },
+  },
+  {
+    name: "capture",
+    description:
+      "Draft a Record Proposal (not live). Usage: /capture decision|lesson|preference|quote <title> [| body...]",
+    completeArg: (completedArgs) => {
+      if (completedArgs.length === 0) {
+        return ["decision", "lesson", "preference", "quote", "note"];
+      }
+      return [];
+    },
+    run: async (_agent, args) => {
+      const typeRaw = (args[0] ?? "decision").toLowerCase();
+      const allowed: RecordType[] = ["decision", "lesson", "preference", "quote", "note"];
+      if (!allowed.includes(typeRaw as RecordType)) {
+        return `Unknown type "${typeRaw}". Use: ${allowed.join(", ")}`;
+      }
+      const type = typeRaw as RecordType;
+      const rest = args.slice(1).join(" ").trim();
+      if (!rest) {
+        return "Usage: /capture <type> <title> [| optional body paragraph...]";
+      }
+      const [titlePart, ...bodyParts] = rest.split("|").map((s) => s.trim());
+      const title = titlePart || "Untitled";
+      const body =
+        bodyParts.length > 0
+          ? bodyParts.join("\n").split("\n").map((l) => l.trim())
+          : [];
+      try {
+        const meta = await createProposal({ type, title, body });
+        return (
+          `## Proposal created (draft only)\n\n` +
+          `- **id**: \`${meta.id}\`\n` +
+          `- **type**: ${meta.type}\n` +
+          `- **title**: ${meta.title}\n` +
+          `- **path**: \`${meta.path}\`\n\n` +
+          `Listed on \`nyanclaw/inbox\`. Live Records are **not** updated until \`/apply ${meta.id}\`.`
+        );
+      } catch (err) {
+        return `Capture failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    },
+  },
+  {
+    name: "inbox",
+    description: "List pending Record Proposals",
+    run: async (_agent, _args) => {
+      try {
+        const pending = await listPendingProposals();
+        if (pending.length === 0) return "Inbox is empty (no pending proposals).";
+        const lines = pending.map(
+          (p) => `- \`${p.id}\` **${p.type}**: ${p.title}`,
+        );
+        return `## Pending proposals\n\n${lines.join("\n")}\n\n\`/apply <id>\` or \`/reject <id>\`.`;
+      } catch (err) {
+        return `Inbox failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    },
+  },
+  {
+    name: "apply",
+    description: "Apply a pending Proposal to a live Record. Usage: /apply <id>",
+    run: async (_agent, args) => {
+      const id = args[0];
+      if (!id) return "Usage: /apply <proposal-id>";
+      try {
+        const r = await applyProposal(id);
+        return (
+          `## Applied\n\n- **proposal**: \`${id}\`\n- **record**: \`${r.recordPath}\`\n\nAudit logged under nyanclaw/audit.`
+        );
+      } catch (err) {
+        return `Apply failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    },
+  },
+  {
+    name: "reject",
+    description: "Reject a pending Proposal. Usage: /reject <id>",
+    run: async (_agent, args) => {
+      const id = args[0];
+      if (!id) return "Usage: /reject <proposal-id>";
+      try {
+        await rejectProposal(id);
+        return `Rejected proposal \`${id}\`.`;
+      } catch (err) {
+        return `Reject failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
     },
   },
   {
