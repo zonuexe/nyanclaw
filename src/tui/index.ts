@@ -51,6 +51,7 @@ const editorTheme: EditorTheme = {
 };
 
 import type { Config } from "../config.ts";
+import { SessionRecorder } from "../session/index.ts";
 
 export interface NyanclawTuiOptions {
   agent: Agent;
@@ -66,12 +67,14 @@ export class NyanclawTui {
   private messageContainer: Container;
   private agent: Agent;
   private running = true;
+  private session: SessionRecorder;
 
   private config: Config;
 
   constructor(opts: NyanclawTuiOptions) {
     this.agent = opts.agent;
     this.config = opts.config;
+    this.session = new SessionRecorder();
 
     const terminal = new ProcessTerminal();
     this.tui = new TUI(terminal);
@@ -142,6 +145,7 @@ export class NyanclawTui {
         this.hideLoader();
         this.refreshStatusBar();
         this.tui.requestRender();
+        void this.session.flushFromAgent(this.agent);
         break;
     }
   }
