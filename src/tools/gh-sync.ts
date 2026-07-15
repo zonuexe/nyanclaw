@@ -4,12 +4,21 @@ import { readFileSync, existsSync, readdirSync, renameSync, unlinkSync } from "n
 import { join } from "node:path";
 import { logseqGraph } from "../config.ts";
 import {
-  decodePageName,
   encodePageName,
   serializeBlock,
   type BlockSpec,
 } from "../org/index.ts";
 import { writeOrgFileAtomic } from "../org/fs.ts";
+import {
+  ONE_DAY_MS,
+  newsRefFromFilename,
+  parseNewsPage,
+  pruneOldSections,
+  renderSections,
+  safeTitle,
+  sectionHasRecentLabel,
+  type NewsSection,
+} from "./gh-news.ts";
 
 function defineTool(def: {
   name: string;
@@ -80,16 +89,6 @@ function migrateToEncodedFormat(raw: string, encoded: string, graph: string): vo
   }
 }
 
-/** Issue/PR titles for BlockSpec (reject-safe). */
-function safeTitle(raw: string): string {
-  return raw
-    .replace(/[\r\n]+/g, " ")
-    .replace(/^\*+\s*/, "")
-    .replace(/^-\s*/, "")
-    .trim()
-    .slice(0, 500) || "(untitled)";
-}
-
 // ---------------------------------------------------------------------------
 // Extract [[GH:owner/repo]] references from a Logseq page
 // ---------------------------------------------------------------------------
@@ -142,47 +141,6 @@ function isGhAvailable(): boolean {
 // ---------------------------------------------------------------------------
 // News page management (Org format, daily sections, 7-day retention)
 // ---------------------------------------------------------------------------
-
-const ONE_DAY_MS = 86_400_000;
-
-interface NewsSection {
-  dateLabel: string;
-  lines: string[];
-}
-
-/** Parse existing news page into sections keyed by date. */
-function parseNewsPage(content: string): Map<string, NewsSection> {
-  const sections = new Map<string, NewsSection>();
-  let current: NewsSection | null = null;
-
-  for (const line of content.split("\n")) {
-    if (line.startsWith("* ")) {
-      const dateLabel = line.slice(2).trim();
-      current = { dateLabel, lines: [line] };
-      sections.set(dateLabel, current);
-    } else if (current) {
-      current.lines.push(line);
-    }
-  }
-  return sections;
-}
-
-/** Remove sections older than 7 days. */
-function pruneOldSections(sections: Map<string, NewsSection>): void {
-  const cutoff = Date.now() - 7 * ONE_DAY_MS;
-  for (const [label, _section] of sections) {
-    const d = new Date(label);
-    if (!isNaN(d.getTime()) && d.getTime() < cutoff) {
-      sections.delete(label);
-    }
-  }
-}
-
-/** Render sections back to Org text. */
-function renderSections(sections: Map<string, NewsSection>): string {
-  const sorted = [...sections.entries()].sort(([a], [b]) => b.localeCompare(a));
-  return sorted.map(([_, s]) => s.lines.join("\n")).join("\n").trim() + "\n";
-}
 
 /** Build today's news section via BlockSpec serialize (history sections stay opaque). */
 function buildTodayNews(repo: string): string[] {
@@ -523,19 +481,13 @@ function updateDashboard(_content: string, _repos?: string[]): void {
 
   if (existsSync(pagesDir)) {
     for (const file of readdirSync(pagesDir)) {
-      if (!/\.(org|md)$/i.test(file)) continue;
-      // Match both bare GH:…/news and encoded GH%3A…%2Fnews
-      const logical = decodePageName(file);
-      const match = logical.match(/^GH:(.+)\/news$/);
-      if (!match) continue;
+      const newsRef = newsRefFromFilename(file);
+      if (!newsRef) continue;
       try {
         const content = readFileSync(join(pagesDir, file), "utf-8");
         const sections = parseNewsPage(content);
-        for (const [label] of sections) {
-          if (label >= cutoff) {
-            recentRepos.push(`GH:${match[1]}/news`);
-            break;
-          }
+        if (sectionHasRecentLabel(sections, cutoff)) {
+          recentRepos.push(newsRef);
         }
       } catch {
         /* skip unreadable */
