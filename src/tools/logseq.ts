@@ -1,9 +1,18 @@
 import { Type } from "typebox";
 import { parse, NodeType } from "org-mode-ast";
-import { readFile, writeFile, appendFile, mkdir, readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import { logseqGraph } from "../config.ts";
+import {
+  appendBlock,
+  appendNote,
+  appendQuote,
+  OrgError,
+  type BlockSpec,
+  type PageRef,
+  type TodoKeyword,
+} from "../org/index.ts";
 
 // Lazy directory path accessors — env var is resolved on first tool use, not at module init
 function journalsDir() {
@@ -137,8 +146,12 @@ export const logseqReadJournal = defineTool({
 
       const todos = analysis.headlines.filter((h) => h.todoKeyword === "TODO");
       const dones = analysis.headlines.filter((h) => h.todoKeyword === "DONE");
+      const waitings = analysis.headlines.filter((h) => h.todoKeyword === "WAITING");
       const others = analysis.headlines.filter(
-        (h) => h.todoKeyword !== "TODO" && h.todoKeyword !== "DONE",
+        (h) =>
+          h.todoKeyword !== "TODO" &&
+          h.todoKeyword !== "DONE" &&
+          h.todoKeyword !== "WAITING",
       );
 
       if (todos.length > 0) {
@@ -147,6 +160,17 @@ export const logseqReadJournal = defineTool({
           result += `- ${"  ".repeat(t.level - 1)}* ${t.title}`;
           if (t.scheduled) result += ` (scheduled: ${t.scheduled})`;
           if (t.deadline) result += ` (deadline: ${t.deadline})`;
+          result += "\n";
+        }
+        result += "\n";
+      }
+
+      if (waitings.length > 0) {
+        result += `### WAITING\n`;
+        for (const w of waitings) {
+          result += `- ${w.title}`;
+          if (w.scheduled) result += ` (scheduled: ${w.scheduled})`;
+          if (w.deadline) result += ` (deadline: ${w.deadline})`;
           result += "\n";
         }
         result += "\n";
@@ -186,54 +210,300 @@ export const logseqReadJournal = defineTool({
   },
 });
 
-export const logseqWriteBlock = defineTool({
-  name: "logseq_write_block",
-  label: "Write Logseq Block",
+function resolvePageRef(params: {
+  page?: string;
+  journalDate?: string;
+}): PageRef {
+  const page = params.page;
+  const journalDateIso = params.journalDate;
+  if (page && journalDateIso) {
+    throw new OrgError(
+      "invalid_title",
+      "Specify either page or journalDate, not both",
+    );
+  }
+  if (page) {
+    // Legacy underscore journal filenames passed as page=
+    if (/^\d{4}_\d{2}_\d{2}$/.test(page)) {
+      const iso = page.replace(/_/g, "-");
+      return { kind: "journal", date: iso };
+    }
+    return { kind: "page", name: page };
+  }
+  return { kind: "journal", date: journalDateIso };
+}
+
+function parseTodo(v: unknown): TodoKeyword | undefined {
+  if (v === "TODO" || v === "DONE" || v === "WAITING") return v;
+  return undefined;
+}
+
+function parseTs(s: string | undefined): { date: string; time?: string } | undefined {
+  if (!s) return undefined;
+  const m = s.trim().match(/^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?$/);
+  if (!m) {
+    throw new OrgError("invalid_timestamp", `expected YYYY-MM-DD or YYYY-MM-DD HH:MM, got ${s}`);
+  }
+  return m[2] ? { date: m[1]!, time: m[2] } : { date: m[1]! };
+}
+
+function childBlockFromParams(c: Record<string, unknown>): BlockSpec {
+  return {
+    title: String(c.title ?? ""),
+    todo: parseTodo(c.todo),
+    tags: Array.isArray(c.tags) ? (c.tags as string[]) : undefined,
+    deadline: parseTs(c.deadline as string | undefined),
+    scheduled: parseTs(c.scheduled as string | undefined),
+    body: Array.isArray(c.body) ? (c.body as string[]) : undefined,
+    children: Array.isArray(c.children)
+      ? (c.children as Record<string, unknown>[]).map(childBlockFromParams)
+      : undefined,
+  };
+}
+
+function toolError(err: unknown): {
+  content: { type: "text"; text: string }[];
+  details: unknown;
+} {
+  if (err instanceof OrgError) {
+    return {
+      content: [{ type: "text", text: `Org write failed (${err.code}): ${err.message}` }],
+      details: { error: err.code, message: err.message, ...err.details },
+    };
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  return {
+    content: [{ type: "text", text: `Org write failed: ${msg}` }],
+    details: { error: msg },
+  };
+}
+
+const pageParams = {
+  journalDate: Type.Optional(
+    Type.String({ description: "YYYY-MM-DD; default today → journals/YYYY_MM_DD.org" }),
+  ),
+  page: Type.Optional(
+    Type.String({
+      description: "Logical page name (not file path). Encoded on write. XOR with journalDate.",
+    }),
+  ),
+};
+
+export const logseqAppendBlock = defineTool({
+  name: "logseq_append_block",
+  label: "Append Logseq Block",
   description:
-    "Append an Org-mode block (headline or list item) to a Logseq page or journal entry.",
+    "Append a structured headline/list block to a Logseq page or journal. Pass title text only — do not include Org markers (* or -) or raw Org syntax.",
   parameters: Type.Object({
-    content: Type.String({ description: "Block content in Org-mode syntax" }),
-    page: Type.Optional(
-      Type.String({
-        description:
-          "Target page name (without extension). Defaults to today's journal date.",
-      }),
+    title: Type.String({
+      description: "Title text only; no leading * or -; no newlines",
+    }),
+    todo: Type.Optional(
+      Type.Union([
+        Type.Literal("TODO"),
+        Type.Literal("DONE"),
+        Type.Literal("WAITING"),
+      ]),
     ),
-    asHeadline: Type.Optional(
-      Type.Boolean({
-        description:
-          "If true, format as a headline (* ). If false, format as a list item (- ).",
-        default: false,
-      }),
+    tags: Type.Optional(Type.Array(Type.String(), { maxItems: 10 })),
+    deadline: Type.Optional(
+      Type.String({ description: "YYYY-MM-DD or YYYY-MM-DD HH:MM" }),
     ),
+    scheduled: Type.Optional(
+      Type.String({ description: "YYYY-MM-DD or YYYY-MM-DD HH:MM" }),
+    ),
+    body: Type.Optional(Type.Array(Type.String(), { maxItems: 100 })),
+    style: Type.Optional(
+      Type.Union([Type.Literal("headline"), Type.Literal("list")]),
+    ),
+    children: Type.Optional(
+      Type.Array(
+        Type.Object({
+          title: Type.String(),
+          todo: Type.Optional(
+            Type.Union([
+              Type.Literal("TODO"),
+              Type.Literal("DONE"),
+              Type.Literal("WAITING"),
+            ]),
+          ),
+          tags: Type.Optional(Type.Array(Type.String())),
+          deadline: Type.Optional(Type.String()),
+          scheduled: Type.Optional(Type.String()),
+          body: Type.Optional(Type.Array(Type.String())),
+          children: Type.Optional(
+            Type.Array(
+              Type.Object({
+                title: Type.String(),
+                todo: Type.Optional(
+                  Type.Union([
+                    Type.Literal("TODO"),
+                    Type.Literal("DONE"),
+                    Type.Literal("WAITING"),
+                  ]),
+                ),
+                tags: Type.Optional(Type.Array(Type.String())),
+                deadline: Type.Optional(Type.String()),
+                scheduled: Type.Optional(Type.String()),
+                body: Type.Optional(Type.Array(Type.String())),
+              }),
+            ),
+          ),
+        }),
+      ),
+    ),
+    ...pageParams,
   }),
   execute: async (_toolCallId, params) => {
-    const rawContent = params.content as string;
-    const page = (params.page as string | undefined) ?? journalDate(new Date());
-    const asHeadline = (params.asHeadline as boolean | undefined) ?? false;
-    const fileName = `${page}.org`;
-
-    const isJournal = /^\d{4}_\d{2}_\d{2}$/.test(page);
-    const filePath = isJournal
-      ? join(journalsDir(), fileName)
-      : join(pagesDir(), fileName);
-
-    await mkdir(dirname(filePath), { recursive: true });
-
-    const lines = rawContent.split("\n");
-    const prefix = asHeadline ? "* " : "- ";
-    const block = "\n" + lines.map((l) => `${prefix}${l}`).join("\n") + "\n";
-
-    if (!existsSync(filePath)) {
-      await writeFile(filePath, `#+TITLE: ${page}\n${block}`, "utf-8");
-    } else {
-      await appendFile(filePath, block, "utf-8");
+    try {
+      const ref = resolvePageRef({
+        page: params.page as string | undefined,
+        journalDate: params.journalDate as string | undefined,
+      });
+      const block: BlockSpec = {
+        title: String(params.title),
+        todo: parseTodo(params.todo),
+        tags: Array.isArray(params.tags) ? (params.tags as string[]) : undefined,
+        deadline: parseTs(params.deadline as string | undefined),
+        scheduled: parseTs(params.scheduled as string | undefined),
+        body: Array.isArray(params.body) ? (params.body as string[]) : undefined,
+        style: params.style === "list" ? "list" : "headline",
+        children: Array.isArray(params.children)
+          ? (params.children as Record<string, unknown>[]).map(childBlockFromParams)
+          : undefined,
+      };
+      const result = await appendBlock(ref, block);
+      return {
+        content: [{ type: "text", text: `Appended block to ${result.path}` }],
+        details: result,
+      };
+    } catch (err) {
+      return toolError(err);
     }
+  },
+});
 
-    return {
-      content: [{ type: "text", text: `Appended to ${fileName}` }],
-      details: { path: filePath, page, isJournal, asHeadline },
-    };
+export const logseqAppendNote = defineTool({
+  name: "logseq_append_note",
+  label: "Append Logseq Note",
+  description:
+    "Append plain-text note lines (list or paragraph). No Org markers. For multi-paragraph quotes use logseq_append_quote.",
+  parameters: Type.Object({
+    lines: Type.Array(Type.String({ description: "Plain text line; no Org markers" }), {
+      minItems: 1,
+      maxItems: 100,
+    }),
+    style: Type.Optional(
+      Type.Union([Type.Literal("list"), Type.Literal("paragraph")]),
+    ),
+    ...pageParams,
+  }),
+  execute: async (_toolCallId, params) => {
+    try {
+      const ref = resolvePageRef({
+        page: params.page as string | undefined,
+        journalDate: params.journalDate as string | undefined,
+      });
+      const result = await appendNote(ref, {
+        lines: params.lines as string[],
+        style: (params.style as "list" | "paragraph" | undefined) ?? "list",
+      });
+      return {
+        content: [{ type: "text", text: `Appended note to ${result.path}` }],
+        details: result,
+      };
+    } catch (err) {
+      return toolError(err);
+    }
+  },
+});
+
+export const logseqAppendQuote = defineTool({
+  name: "logseq_append_quote",
+  label: "Append Logseq Quote",
+  description:
+    "Append a quote/record block. Pass plain text lines only — do NOT write #+BEGIN_QUOTE yourself. Optional heading above the quote.",
+  parameters: Type.Object({
+    lines: Type.Array(
+      Type.String({
+        description:
+          "One plain text line; empty string = blank line inside quote. No #+BEGIN/END, no leading * or -.",
+      }),
+      { minItems: 1, maxItems: 500 },
+    ),
+    heading: Type.Optional(
+      Type.String({ description: "Optional headline above the quote (title only)" }),
+    ),
+    tags: Type.Optional(Type.Array(Type.String(), { maxItems: 10 })),
+    ...pageParams,
+  }),
+  execute: async (_toolCallId, params) => {
+    try {
+      const ref = resolvePageRef({
+        page: params.page as string | undefined,
+        journalDate: params.journalDate as string | undefined,
+      });
+      const result = await appendQuote(ref, {
+        lines: params.lines as string[],
+        heading: params.heading as string | undefined,
+        tags: Array.isArray(params.tags) ? (params.tags as string[]) : undefined,
+      });
+      return {
+        content: [{ type: "text", text: `Appended quote to ${result.path}` }],
+        details: result,
+      };
+    } catch (err) {
+      return toolError(err);
+    }
+  },
+});
+
+/** @deprecated Use logseq_append_block / note / quote. Only when NYANCLAW_ORG_LEGACY_WRITE=1. */
+export const logseqWriteBlock = defineTool({
+  name: "logseq_write_block",
+  label: "Write Logseq Block (legacy)",
+  description:
+    "LEGACY free-form Org append. Disabled unless NYANCLAW_ORG_LEGACY_WRITE=1. Prefer logseq_append_block / logseq_append_note / logseq_append_quote.",
+  parameters: Type.Object({
+    content: Type.String({ description: "Block content (legacy raw Org)" }),
+    page: Type.Optional(Type.String()),
+    asHeadline: Type.Optional(Type.Boolean({ default: false })),
+  }),
+  execute: async (_toolCallId, params) => {
+    if (process.env.NYANCLAW_ORG_LEGACY_WRITE !== "1") {
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              "logseq_write_block is disabled. Use logseq_append_block, logseq_append_note, or logseq_append_quote. Set NYANCLAW_ORG_LEGACY_WRITE=1 only as emergency fallback.",
+          },
+        ],
+        details: { error: "legacy_disabled" },
+      };
+    }
+    // Minimal emergency path: single-line title as block only (still structured)
+    try {
+      const raw = String(params.content ?? "").trim();
+      const first = raw.split("\n")[0] ?? "";
+      const title = first.replace(/^\*+\s+/, "").replace(/^-\s+/, "");
+      const ref = resolvePageRef({ page: params.page as string | undefined });
+      const result = await appendBlock(ref, {
+        title,
+        style: params.asHeadline === false ? "list" : "headline",
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Legacy write coerced to structured append at ${result.path}`,
+          },
+        ],
+        details: { ...result, legacy: true },
+      };
+    } catch (err) {
+      return toolError(err);
+    }
   },
 });
 

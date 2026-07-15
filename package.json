@@ -8,7 +8,8 @@
     "dev": "bun run src/index.ts",
     "start": "bun run src/index.ts",
     "lint:secrets": "secretlint 'src/**/*.ts' '*.json' '*.yaml'",
-    "lint": "bun run lint:secrets && bun run tsc --noEmit"
+    "lint": "bun run lint:secrets && bun run tsc --noEmit",
+    "test": "bun test src/org"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.80.3",

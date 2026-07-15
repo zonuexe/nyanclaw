@@ -1,0 +1,166 @@
+import { createHash } from "node:crypto";
+import type {
+  BlockSpec,
+  DocumentSpec,
+  NoteSpec,
+  PageRef,
+  QuoteSpec,
+  WriteResult,
+} from "./types.ts";
+import { OrgError } from "./types.ts";
+import {
+  serializeBlock,
+  serializeDocument,
+  serializeNote,
+  serializeQuote,
+} from "./serialize.ts";
+import { assertStructuralOk, maybeRoundTrip } from "./validate.ts";
+import { resolvePath, titleForPageRef } from "./paths.ts";
+import { mtimeMs, readOrgFile, writeOrgFileAtomic } from "./fs.ts";
+import { logseqGraph } from "../config.ts";
+
+export type OrgWriteOpts = {
+  /** Override graph root (tests / CLI). Defaults to config logseq_graph. */
+  graphRoot?: string;
+};
+
+function resolveGraphRoot(opts?: OrgWriteOpts): string {
+  if (opts?.graphRoot) return opts.graphRoot;
+  return logseqGraph();
+}
+
+function sha256(text: string): string {
+  return createHash("sha256").update(text, "utf-8").digest("hex");
+}
+
+function ensureTrailingNewline(s: string): string {
+  if (s === "") return "\n";
+  return s.endsWith("\n") ? s : s + "\n";
+}
+
+function composeAppend(existing: string | null, fragment: string, title: string): string {
+  if (existing === null || existing === "") {
+    return `#+TITLE: ${title}\n${fragment}\n`;
+  }
+  const base = ensureTrailingNewline(existing);
+  // If file already ends with newline, append fragment + newline
+  return base + fragment + "\n";
+}
+
+function debugL1(after: string): void {
+  if (process.env.NYANCLAW_ORG_DEBUG === "1") {
+    const r = maybeRoundTrip(after);
+    if (!r.ok) {
+      console.error("[nyanclaw org L1 debug] parse failed:", r.error);
+    }
+  }
+}
+
+export async function appendBlock(
+  page: PageRef,
+  block: BlockSpec,
+  opts?: OrgWriteOpts,
+): Promise<WriteResult> {
+  return appendBlocks(page, [block], opts);
+}
+
+export async function appendBlocks(
+  page: PageRef,
+  blocks: BlockSpec[],
+  opts?: OrgWriteOpts,
+): Promise<WriteResult> {
+  const root = resolveGraphRoot(opts);
+  const path = resolvePath(page, root);
+  const fragment = blocks.map((b) => serializeBlock(b)).join("\n");
+  const before = readOrgFile(path);
+  const mtimeBeforeMs = before !== null ? mtimeMs(path) : undefined;
+  const contentHashBefore = before !== null ? sha256(before) : undefined;
+  const after = composeAppend(before, fragment, titleForPageRef(page));
+  assertStructuralOk(before ?? "", after, { kind: "append_fragment", fragment });
+  debugL1(after);
+  writeOrgFileAtomic(path, after);
+  return {
+    path,
+    op: before === null ? "create" : "append",
+    bytes: new TextEncoder().encode(after).length,
+    validated: true,
+    mtimeBeforeMs,
+    contentHashBefore,
+  };
+}
+
+export async function appendNote(
+  page: PageRef,
+  note: NoteSpec,
+  opts?: OrgWriteOpts,
+): Promise<WriteResult> {
+  const root = resolveGraphRoot(opts);
+  const path = resolvePath(page, root);
+  const fragment = serializeNote(note);
+  const before = readOrgFile(path);
+  const mtimeBeforeMs = before !== null ? mtimeMs(path) : undefined;
+  const contentHashBefore = before !== null ? sha256(before) : undefined;
+  const after = composeAppend(before, fragment, titleForPageRef(page));
+  assertStructuralOk(before ?? "", after, { kind: "append_note", fragment });
+  debugL1(after);
+  writeOrgFileAtomic(path, after);
+  return {
+    path,
+    op: before === null ? "create" : "append",
+    bytes: new TextEncoder().encode(after).length,
+    validated: true,
+    mtimeBeforeMs,
+    contentHashBefore,
+  };
+}
+
+export async function appendQuote(
+  page: PageRef,
+  quote: QuoteSpec,
+  opts?: OrgWriteOpts,
+): Promise<WriteResult> {
+  const root = resolveGraphRoot(opts);
+  const path = resolvePath(page, root);
+  const fragment = serializeQuote(quote);
+  const before = readOrgFile(path);
+  const mtimeBeforeMs = before !== null ? mtimeMs(path) : undefined;
+  const contentHashBefore = before !== null ? sha256(before) : undefined;
+  const after = composeAppend(before, fragment, titleForPageRef(page));
+  assertStructuralOk(before ?? "", after, { kind: "append_quote", fragment });
+  debugL1(after);
+  writeOrgFileAtomic(path, after);
+  return {
+    path,
+    op: before === null ? "create" : "append",
+    bytes: new TextEncoder().encode(after).length,
+    validated: true,
+    mtimeBeforeMs,
+    contentHashBefore,
+  };
+}
+
+export async function writeDocument(
+  page: PageRef,
+  doc: DocumentSpec,
+  opts?: OrgWriteOpts,
+): Promise<WriteResult> {
+  const root = resolveGraphRoot(opts);
+  const path = resolvePath(page, root);
+  const before = readOrgFile(path);
+  const mtimeBeforeMs = before !== null ? mtimeMs(path) : undefined;
+  const contentHashBefore = before !== null ? sha256(before) : undefined;
+  const after = serializeDocument(doc);
+  assertStructuralOk(before ?? "", after, { kind: "write_document" });
+  debugL1(after);
+  writeOrgFileAtomic(path, after);
+  return {
+    path,
+    op: "replace",
+    bytes: new TextEncoder().encode(after).length,
+    validated: true,
+    mtimeBeforeMs,
+    contentHashBefore,
+  };
+}
+
+export { OrgError };
