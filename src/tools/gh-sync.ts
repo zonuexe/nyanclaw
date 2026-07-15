@@ -286,6 +286,33 @@ function buildTodayNews(repo: string): string[] {
   return serializeBlock({ title: dateLabel, children }).split("\n");
 }
 
+/** Untriaged issues section for a maintained repo (structured serialize). */
+function buildUntriagedSection(target: string): { lines: string[]; count: number; dateLabel: string } {
+  const dateLabel = new Date().toISOString().slice(0, 10);
+  const issuesRaw = gh(
+    `search issues --repo "${target}" --state open --sort created --limit 30 --json number,title,state,createdAt,labels`,
+  );
+  const issues = issuesRaw ? (JSON.parse(issuesRaw) as any[]) : [];
+  const untriaged = issues.filter((i: any) => !i.labels?.length);
+  if (untriaged.length === 0) {
+    return { lines: [], count: 0, dateLabel };
+  }
+  const text = serializeBlock({
+    title: dateLabel,
+    children: [
+      {
+        title: "Untriaged Issues",
+        children: untriaged.map((issue) => ({
+          title: safeTitle(
+            `[#${issue.number}] ${issue.title} - ${(issue.createdAt || "").slice(0, 10)}`,
+          ),
+        })),
+      },
+    ],
+  });
+  return { lines: text.split("\n"), count: untriaged.length, dateLabel };
+}
+
 // ---------------------------------------------------------------------------
 // Tool: gh_sync_watched
 // ---------------------------------------------------------------------------
@@ -381,7 +408,6 @@ export const ghSyncMaintained = defineTool({
     }
 
     const results: string[] = [];
-    const today = new Date().toISOString().slice(0, 10);
 
     for (const target of targets) {
       const newsPage = `GH:${target}/news`;
@@ -394,24 +420,14 @@ export const ghSyncMaintained = defineTool({
         pruneOldSections(sections);
       }
 
-      // Fetch untriaged issues for this org/repo
-      const issuesRaw = gh(`search issues --repo "${target}" --state open --sort created --limit 30 --json number,title,state,createdAt,labels`);
-      const issues = issuesRaw ? JSON.parse(issuesRaw) as any[] : [];
-      const untriaged = issues.filter((i: any) => !i.labels?.length);
-
-      if (untriaged.length > 0) {
-        const lines: string[] = [`* ${today}`, "** Untriaged Issues"];
-        for (const issue of untriaged) {
-          const created = (issue.createdAt || "").slice(0, 10);
-          lines.push(`*** [#${issue.number}] ${issue.title} - ${created}`);
-        }
-
-        if (sections.has(today)) sections.delete(today);
-        sections.set(today, { dateLabel: today, lines });
+      const { lines, count, dateLabel } = buildUntriagedSection(target);
+      if (lines.length > 0) {
+        if (sections.has(dateLabel)) sections.delete(dateLabel);
+        sections.set(dateLabel, { dateLabel, lines });
       }
 
       writePage(newsPage, renderSections(sections));
-      results.push(`${target}: ${untriaged.length} untriaged`);
+      results.push(`${target}: ${count} untriaged`);
     }
 
     return {
@@ -471,22 +487,14 @@ export const ghSyncAll = defineTool({
         const sections = existing ? parseNewsPage(existing) : new Map();
         pruneOldSections(sections);
 
-        const issuesRaw = gh(`search issues --repo "${target}" --state open --sort created --limit 30 --json number,title,state,createdAt,labels`);
-        const issues = issuesRaw ? JSON.parse(issuesRaw) as any[] : [];
-        const untriaged = issues.filter((i: any) => !i.labels?.length);
-        const today = new Date().toISOString().slice(0, 10);
-
-        if (untriaged.length > 0) {
-          const lines: string[] = [`* ${today}`, "** Untriaged Issues"];
-          for (const issue of untriaged) {
-            lines.push(`*** [#${issue.number}] ${issue.title} - ${(issue.createdAt || "").slice(0, 10)}`);
-          }
-          if (sections.has(today)) sections.delete(today);
-          sections.set(today, { dateLabel: today, lines });
+        const { lines, count, dateLabel } = buildUntriagedSection(target);
+        if (lines.length > 0) {
+          if (sections.has(dateLabel)) sections.delete(dateLabel);
+          sections.set(dateLabel, { dateLabel, lines });
         }
 
         writePage(newsPage, renderSections(sections));
-        results.push(`maintained: ${target} (${untriaged.length} untriaged)`);
+        results.push(`maintained: ${target} (${count} untriaged)`);
       }
     }
 

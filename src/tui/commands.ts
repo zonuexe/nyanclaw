@@ -7,8 +7,11 @@ import { ghSyncAll } from "../tools/gh-sync.ts";
 import {
   applyProposal,
   createProposal,
+  distillMessages,
+  formatDistillResult,
   listPendingProposals,
   rejectProposal,
+  type DistillKind,
   type RecordType,
 } from "../records/index.ts";
 import { getCurrentSessionId } from "../session/index.ts";
@@ -67,69 +70,29 @@ export const commands: CommandDef[] = [
   {
     name: "bye",
     description:
-      "End session: offer to draft Record Proposals from this conversation (one-shot offer)",
+      "End session: offer to distill Record Proposals (same engine as /distill)",
     run: async (agent, args) => {
       const force = args[0] === "yes" || args[0] === "-y";
-      // Heuristic: skip empty sessions
-      const msgs = (agent.state.messages ?? []).filter(
+      const msgs = agent.state.messages ?? [];
+      const n = msgs.filter(
         (m: { role?: string }) => m.role === "user" || m.role === "assistant",
-      );
-      if (msgs.length === 0) {
+      ).length;
+      if (n === 0) {
         return "Session empty — nothing to capture. Goodbye.";
       }
       if (!force) {
         return (
           `## Session end\n\n` +
-          `This session has **${msgs.length}** user/assistant messages.\n\n` +
+          `This session has **${n}** user/assistant messages.\n\n` +
           `Draft candidate Record Proposals into the inbox?\n` +
-          `- \`/bye yes\` — create pending decision/lesson/preference candidates from recent user lines\n` +
-          `- Or run \`/capture <type> <title>\` yourself, then leave.\n\n` +
+          `- \`/bye yes\` — run **distill** (decision/lesson/preference keywords; fallback last user turns as decisions)\n` +
+          `- \`/distill\` — same engine without ending the session\n` +
+          `- Or \`/capture <type> <title>\` yourself\n\n` +
           `Nothing is written until you confirm.`
         );
       }
-      // Lightweight candidate extraction: last few user messages as decision drafts
-      const users = msgs
-        .filter((m: { role?: string }) => m.role === "user")
-        .slice(-5);
-      const created: string[] = [];
-      for (const m of users) {
-        const content = (m as { content?: unknown }).content;
-        let text = "";
-        if (typeof content === "string") text = content;
-        else if (Array.isArray(content)) {
-          text = content
-            .map((p) =>
-              typeof p === "string"
-                ? p
-                : p && typeof p === "object" && "text" in p
-                  ? String((p as { text: unknown }).text)
-                  : "",
-            )
-            .join("");
-        }
-        text = text.trim();
-        if (!text || text.startsWith("/")) continue;
-        const title = text.split("\n")[0]!.slice(0, 80);
-        try {
-          const meta = await createProposal({
-            type: "decision",
-            title,
-            body: text.split("\n").slice(0, 40),
-            sourceSessionId: getCurrentSessionId(),
-          });
-          created.push(meta.id);
-        } catch {
-          /* skip bad lines */
-        }
-      }
-      if (created.length === 0) {
-        return "No candidate proposals created (nothing suitable). Review with /inbox.";
-      }
-      return (
-        `## Drafted ${created.length} proposal(s)\n\n` +
-        created.map((id) => `- \`${id}\``).join("\n") +
-        `\n\nReview with \`/inbox\`, then \`/apply\` or \`/reject\`.`
-      );
+      const r = await distillMessages(msgs, "all", { fallbackAsDecisions: true });
+      return formatDistillResult(r, "Session end — drafted");
     },
   },
   {
@@ -144,130 +107,16 @@ export const commands: CommandDef[] = [
     },
     run: async (agent, args) => {
       const kind = (args[0] ?? "all").toLowerCase();
-      const types: RecordType[] =
-        kind === "all"
-          ? ["decision", "lesson", "preference"]
-          : kind === "decision" || kind === "lesson" || kind === "preference"
-            ? [kind]
-            : [];
-      if (types.length === 0) {
+      if (
+        kind !== "all" &&
+        kind !== "decision" &&
+        kind !== "lesson" &&
+        kind !== "preference"
+      ) {
         return "Usage: /distill [decision|lesson|preference|all]";
       }
-
-      const msgs = (agent.state.messages ?? []).filter(
-        (m: { role?: string }) => m.role === "user" || m.role === "assistant",
-      );
-      if (msgs.length === 0) {
-        return "Nothing to distill — conversation is empty.";
-      }
-
-      function msgText(m: unknown): string {
-        if (!m || typeof m !== "object") return "";
-        const content = (m as { content?: unknown }).content;
-        if (typeof content === "string") return content;
-        if (Array.isArray(content)) {
-          return content
-            .map((p) =>
-              typeof p === "string"
-                ? p
-                : p && typeof p === "object" && "text" in p
-                  ? String((p as { text: unknown }).text)
-                  : "",
-            )
-            .join("");
-        }
-        return "";
-      }
-
-      const userTexts = msgs
-        .filter((m: { role?: string }) => m.role === "user")
-        .map((m) => msgText(m))
-        .map((t) => t.trim())
-        .filter((t) => t && !t.startsWith("/"));
-
-      type Cand = { type: RecordType; title: string; body: string[]; score: number };
-      const cands: Cand[] = [];
-
-      const decisionHints =
-        /\b(decide|decided|decision|方針|決定|採用|選ぶ|選んだ|instead of|rather than|will use|にします|に決めた)\b/i;
-      const lessonHints =
-        /\b(lesson|learned|mistake|avoid|don't|do not|pitfall|学び|教訓|注意|失敗|避ける|壊れた)\b/i;
-      const prefHints =
-        /\b(prefer|preference|always|never|default|好み|常に|絶対|デフォルト|言語|language)\b/i;
-
-      for (const text of userTexts.slice(-12)) {
-        const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-        const title = (lines[0] ?? text).slice(0, 80);
-        const body = lines.slice(0, 40);
-        const lower = text.toLowerCase();
-
-        if (types.includes("decision") && decisionHints.test(text)) {
-          cands.push({ type: "decision", title, body, score: 3 + (lower.includes("decide") ? 1 : 0) });
-        }
-        if (types.includes("lesson") && lessonHints.test(text)) {
-          cands.push({ type: "lesson", title, body, score: 3 });
-        }
-        if (types.includes("preference") && prefHints.test(text)) {
-          cands.push({ type: "preference", title, body, score: 2 });
-        }
-      }
-
-      // Fallback: if nothing matched and type is a single kind, take last 3 user turns
-      if (cands.length === 0 && types.length === 1) {
-        for (const text of userTexts.slice(-3)) {
-          const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-          cands.push({
-            type: types[0]!,
-            title: (lines[0] ?? text).slice(0, 80),
-            body: lines.slice(0, 40),
-            score: 1,
-          });
-        }
-      }
-
-      // Dedupe by type+title, keep highest score, cap 8
-      cands.sort((a, b) => b.score - a.score);
-      const seen = new Set<string>();
-      const picked: Cand[] = [];
-      for (const c of cands) {
-        const k = `${c.type}:${c.title}`;
-        if (seen.has(k)) continue;
-        seen.add(k);
-        picked.push(c);
-        if (picked.length >= 8) break;
-      }
-
-      if (picked.length === 0) {
-        return (
-          "No distill candidates (no keyword hits). " +
-          "Try `/distill decision` after discussing a choice, or use `/capture` manually."
-        );
-      }
-
-      const created: string[] = [];
-      const sessionId = getCurrentSessionId();
-      for (const c of picked) {
-        try {
-          const meta = await createProposal({
-            type: c.type,
-            title: c.title,
-            body: c.body,
-            sourceSessionId: sessionId,
-          });
-          created.push(`${meta.type} \`${meta.id}\` — ${meta.title}`);
-        } catch {
-          /* skip */
-        }
-      }
-
-      if (created.length === 0) {
-        return "Distill failed to create proposals.";
-      }
-      return (
-        `## Distilled ${created.length} proposal(s)\n\n` +
-        created.map((l) => `- ${l}`).join("\n") +
-        `\n\nReview with \`/inbox\`, then \`/apply\` or \`/reject\`.`
-      );
+      const r = await distillMessages(agent.state.messages ?? [], kind as DistillKind);
+      return formatDistillResult(r);
     },
   },
   {

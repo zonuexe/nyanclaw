@@ -10,6 +10,7 @@ import {
   appendQuote,
   setTodoState,
   setPlanning,
+  upsertTask,
   OrgError,
   type BlockSpec,
   type PageRef,
@@ -545,6 +546,60 @@ export const logseqSetPlanning = defineTool({
           {
             type: "text",
             text: `Updated planning for “${params.title}” in ${result.path}`,
+          },
+        ],
+        details: result,
+      };
+    } catch (err) {
+      return toolError(err);
+    }
+  },
+});
+
+export const logseqUpsertTask = defineTool({
+  name: "logseq_upsert_task",
+  label: "Upsert Logseq Task",
+  description:
+    "Create or update a task by title (normalized match). Pass only fields to change on update; omit body/children to keep existing body.",
+  parameters: Type.Object({
+    title: Type.String({ description: "Task title (match key)" }),
+    todo: Type.Optional(
+      Type.Union([
+        Type.Literal("TODO"),
+        Type.Literal("DONE"),
+        Type.Literal("WAITING"),
+      ]),
+    ),
+    tags: Type.Optional(Type.Array(Type.String(), { maxItems: 10 })),
+    deadline: Type.Optional(Type.String({ description: "YYYY-MM-DD or YYYY-MM-DD HH:MM" })),
+    scheduled: Type.Optional(Type.String({ description: "YYYY-MM-DD or YYYY-MM-DD HH:MM" })),
+    body: Type.Optional(Type.Array(Type.String(), { maxItems: 100 })),
+    style: Type.Optional(
+      Type.Union([Type.Literal("headline"), Type.Literal("list")]),
+    ),
+    ...pageParams,
+  }),
+  execute: async (_toolCallId, params) => {
+    try {
+      const ref = resolvePageRef({
+        page: params.page as string | undefined,
+        journalDate: params.journalDate as string | undefined,
+      });
+      const block: BlockSpec = {
+        title: String(params.title),
+        todo: parseTodo(params.todo),
+        tags: Array.isArray(params.tags) ? (params.tags as string[]) : undefined,
+        deadline: parseTs(params.deadline as string | undefined),
+        scheduled: parseTs(params.scheduled as string | undefined),
+        body: Array.isArray(params.body) ? (params.body as string[]) : undefined,
+        style: params.style === "list" ? "list" : "headline",
+      };
+      const result = await upsertTask(ref, block);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Upserted task “${params.title}” (${result.op}) → ${result.path}`,
           },
         ],
         details: result,

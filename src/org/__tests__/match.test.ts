@@ -84,6 +84,37 @@ describe("setPlanning", () => {
   });
 });
 
+describe("upsertTask", () => {
+  test("appends when missing, updates when present", async () => {
+    const { upsertTask } = await import("../ops.ts");
+    const root = mkdtempSync(join(tmpdir(), "nyanclaw-up-"));
+    try {
+      const page = { kind: "journal" as const, date: "2026-07-16" };
+      await upsertTask(
+        page,
+        { todo: "TODO", title: "Idempotent task", tags: ["Task"] },
+        { graphRoot: root },
+      );
+      await upsertTask(
+        page,
+        {
+          todo: "DONE",
+          title: "Idempotent task",
+          deadline: { date: "2026-09-01" },
+        },
+        { graphRoot: root },
+      );
+      const path = join(root, "journals", "2026_07_16.org");
+      const content = readFileSync(path, "utf-8");
+      expect(content.match(/\* (TODO|DONE) Idempotent task/g)?.length).toBe(1);
+      expect(content).toContain("* DONE Idempotent task");
+      expect(content).toContain("DEADLINE: <2026-09-01>");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("setTodoState", () => {
   test("marks DONE preserving body", async () => {
     const root = mkdtempSync(join(tmpdir(), "nyanclaw-todo-"));

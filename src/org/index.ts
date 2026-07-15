@@ -45,6 +45,7 @@ export {
   writeDocument,
   setTodoState,
   setPlanning,
+  upsertTask,
 } from "./ops.ts";
 export type { OrgWriteOpts } from "./ops.ts";
 
