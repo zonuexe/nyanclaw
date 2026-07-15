@@ -8,6 +8,7 @@ import {
   appendBlock,
   appendNote,
   appendQuote,
+  setTodoState,
   OrgError,
   type BlockSpec,
   type PageRef,
@@ -450,6 +451,48 @@ export const logseqAppendQuote = defineTool({
       });
       return {
         content: [{ type: "text", text: `Appended quote to ${result.path}` }],
+        details: result,
+      };
+    } catch (err) {
+      return toolError(err);
+    }
+  },
+});
+
+export const logseqSetTodo = defineTool({
+  name: "logseq_set_todo",
+  label: "Set Logseq TODO state",
+  description:
+    "Change TODO/DONE/WAITING on an existing headline or list task by title match (exact, normalized). Fails if zero or multiple matches.",
+  parameters: Type.Object({
+    title: Type.String({
+      description: "Task title only (no * / - / TODO keyword / tags required for match)",
+    }),
+    state: Type.Union([
+      Type.Literal("TODO"),
+      Type.Literal("DONE"),
+      Type.Literal("WAITING"),
+      Type.Literal("none"),
+    ], { description: "New state; 'none' removes the keyword" }),
+    ...pageParams,
+  }),
+  execute: async (_toolCallId, params) => {
+    try {
+      const ref = resolvePageRef({
+        page: params.page as string | undefined,
+        journalDate: params.journalDate as string | undefined,
+      });
+      const stateRaw = params.state as string;
+      const state =
+        stateRaw === "none" ? null : (stateRaw as "TODO" | "DONE" | "WAITING");
+      const result = await setTodoState(ref, String(params.title), state);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Set TODO state to ${stateRaw} for “${params.title}” in ${result.path}`,
+          },
+        ],
         details: result,
       };
     } catch (err) {

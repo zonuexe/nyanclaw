@@ -6,7 +6,7 @@ import { estimateTokens } from "@earendil-works/pi-agent-core";
 import type { Agent, AgentEvent } from "@earendil-works/pi-agent-core";
 import type { Config } from "../config.ts";
 import { commands } from "../tui/commands.ts";
-import { SessionRecorder } from "../session/index.ts";
+import { SessionRecorder, setCurrentSession } from "../session/index.ts";
 import { palette, syntaxStyle } from "./theme.ts";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -39,6 +39,11 @@ export function App({ agent, config }: AppProps): React.ReactNode {
   // Index of the streaming assistant line, or null when not streaming.
   const streamingIdRef = useRef<number | null>(null);
   const sessionRef = useRef(new SessionRecorder());
+
+  useEffect(() => {
+    setCurrentSession(sessionRef.current);
+    return () => setCurrentSession(null);
+  }, []);
 
   // --- agent event subscription -------------------------------------------
   useEffect(() => {

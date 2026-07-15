@@ -11,6 +11,7 @@ import {
   rejectProposal,
   type RecordType,
 } from "../records/index.ts";
+import { getCurrentSessionId } from "../session/index.ts";
 
 export interface CommandDef {
   name: string;
@@ -114,6 +115,7 @@ export const commands: CommandDef[] = [
             type: "decision",
             title,
             body: text.split("\n").slice(0, 40),
+            sourceSessionId: getCurrentSessionId(),
           });
           created.push(meta.id);
         } catch {
@@ -158,14 +160,21 @@ export const commands: CommandDef[] = [
           ? bodyParts.join("\n").split("\n").map((l) => l.trim())
           : [];
       try {
-        const meta = await createProposal({ type, title, body });
+        const sessionId = getCurrentSessionId();
+        const meta = await createProposal({
+          type,
+          title,
+          body,
+          sourceSessionId: sessionId,
+        });
         return (
           `## Proposal created (draft only)\n\n` +
           `- **id**: \`${meta.id}\`\n` +
           `- **type**: ${meta.type}\n` +
           `- **title**: ${meta.title}\n` +
-          `- **path**: \`${meta.path}\`\n\n` +
-          `Listed on \`nyanclaw/inbox\`. Live Records are **not** updated until \`/apply ${meta.id}\`.`
+          `- **path**: \`${meta.path}\`\n` +
+          (sessionId ? `- **source session**: \`${sessionId}\`\n` : "") +
+          `\nListed on \`nyanclaw/inbox\`. Live Records are **not** updated until \`/apply ${meta.id}\`.`
         );
       } catch (err) {
         return `Capture failed: ${err instanceof Error ? err.message : String(err)}`;

@@ -163,4 +163,38 @@ export async function writeDocument(
   };
 }
 
+export async function setTodoState(
+  page: PageRef,
+  byTitle: string,
+  state: "TODO" | "DONE" | "WAITING" | null,
+  opts?: OrgWriteOpts & { scope?: "level1" | "level1-2" },
+): Promise<WriteResult> {
+  const { requireOneMatch, rewriteTodoOnLine } = await import("./match.ts");
+  const root = resolveGraphRoot(opts);
+  const path = resolvePath(page, root);
+  const before = readOrgFile(path);
+  if (before === null) {
+    throw new OrgError("not_found", `file not found: ${path}`);
+  }
+  const mtimeBeforeMs = mtimeMs(path);
+  const contentHashBefore = sha256(before);
+  const hit = requireOneMatch(before, { byTitle, scope: opts?.scope });
+  const lines = before.split("\n");
+  lines[hit.lineIndex] = rewriteTodoOnLine(lines[hit.lineIndex]!, state);
+  let after = lines.join("\n");
+  if (!after.endsWith("\n") && before.endsWith("\n")) after += "\n";
+  // L2: no double markers; count headlines unchanged
+  assertStructuralOk(before, after, { kind: "write_document" });
+  debugL1(after);
+  writeOrgFileAtomic(path, after);
+  return {
+    path,
+    op: "splice",
+    bytes: new TextEncoder().encode(after).length,
+    validated: true,
+    mtimeBeforeMs,
+    contentHashBefore,
+  };
+}
+
 export { OrgError };

@@ -51,7 +51,7 @@ const editorTheme: EditorTheme = {
 };
 
 import type { Config } from "../config.ts";
-import { SessionRecorder } from "../session/index.ts";
+import { SessionRecorder, setCurrentSession } from "../session/index.ts";
 
 export interface NyanclawTuiOptions {
   agent: Agent;
@@ -75,6 +75,7 @@ export class NyanclawTui {
     this.agent = opts.agent;
     this.config = opts.config;
     this.session = new SessionRecorder();
+    setCurrentSession(this.session);
 
     const terminal = new ProcessTerminal();
     this.tui = new TUI(terminal);

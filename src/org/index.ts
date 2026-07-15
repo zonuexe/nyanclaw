@@ -43,8 +43,18 @@ export {
   appendNote,
   appendQuote,
   writeDocument,
+  setTodoState,
 } from "./ops.ts";
 export type { OrgWriteOpts } from "./ops.ts";
+
+export {
+  normalizeTitle,
+  enumerateBlocks,
+  findMatchingBlocks,
+  requireOneMatch,
+  rewriteTodoOnLine,
+} from "./match.ts";
+export type { LocatedHeadline, MatchQuery } from "./match.ts";
 
 export {
   NYANCLAW_NS,
