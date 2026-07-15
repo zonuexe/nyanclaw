@@ -149,22 +149,32 @@ export function App({ agent, config }: AppProps): React.ReactNode {
     };
   }, [renderer, shutdown]);
 
-  // --- global keys ---------------------------------------------------------
-  useKeyboard((key: KeyEvent) => {
-    if (key.ctrl && key.name === "c") {
-      shutdown(0);
-    }
-  });
-
   const pushLine = useCallback((line: Omit<Line, "id">) => {
     setLines((prev) => [...prev, { ...line, id: nextId() } as Line]);
   }, []);
 
-  // --- slash command suggestions ------------------------------------------
-  const slashSuggestions =
-    inputValue.startsWith("/") && !inputValue.includes(" ")
-      ? commands.filter((c) => c.name.startsWith(inputValue.slice(1)))
-      : [];
+  // --- slash command / argument suggestions -------------------------------
+  const completion = computeCompletion(inputValue);
+
+  const completeFirstSuggestion = useCallback((): boolean => {
+    const first = completion.suggestions[0];
+    if (first === undefined) return false;
+    setInputValue(applySuggestion(inputValue, completion, first.value));
+    return true;
+  }, [inputValue, completion]);
+
+  // --- global keys ---------------------------------------------------------
+  useKeyboard((key: KeyEvent) => {
+    if (key.ctrl && key.name === "c") {
+      shutdown(0);
+      return;
+    }
+
+    if (key.name === "tab" && completeFirstSuggestion()) {
+      key.preventDefault();
+      key.stopPropagation();
+    }
+  });
 
   const handleSubmit = useCallback(
     async (text: string) => {
@@ -224,13 +234,19 @@ export function App({ agent, config }: AppProps): React.ReactNode {
         )}
       </scrollbox>
 
-      {/* Slash command hints */}
-      {slashSuggestions.length > 0 && (
+      {/* Slash command / argument hints */}
+      {completion.suggestions.length > 0 && (
         <box style={{ flexDirection: "column", paddingLeft: 1, backgroundColor: palette.bgAlt }}>
-          {slashSuggestions.slice(0, 6).map((c) => (
-            <text key={c.name} fg={palette.dim}>
-              <span fg={palette.accent}>{`/${c.name}`}</span>
-              {`  ${c.description}`}
+          {completion.suggestions.slice(0, 8).map((s, i) => (
+            <text key={s.value} bg={palette.bgAlt} wrapMode="none">
+              <span fg={i === 0 ? palette.userPrompt : palette.accent} bg={palette.bgAlt}>
+                {s.label}
+              </span>
+              {s.description ? (
+                <span fg={i === 0 ? palette.dim : palette.faint} bg={palette.bgAlt}>
+                  {`  ${s.description}`}
+                </span>
+              ) : null}
             </text>
           ))}
         </box>
@@ -253,6 +269,71 @@ export function App({ agent, config }: AppProps): React.ReactNode {
       </box>
     </box>
   );
+}
+
+interface Suggestion {
+  /** The value inserted when this suggestion is applied. */
+  value: string;
+  /** Text shown in the hint list. */
+  label: string;
+  description?: string;
+}
+
+type Completion =
+  | { kind: "none"; suggestions: [] }
+  | { kind: "command"; suggestions: Suggestion[] }
+  | { kind: "arg"; command: string; completedArgs: string[]; partial: string; suggestions: Suggestion[] };
+
+/**
+ * Compute completion suggestions for the current input.
+ *
+ * - `/prefix`            → complete the command name.
+ * - `/cmd arg1 partial`  → complete the current argument value via the
+ *   command's `completeArg` hook, filtered by `partial`.
+ */
+function computeCompletion(input: string): Completion {
+  if (!input.startsWith("/")) return { kind: "none", suggestions: [] };
+
+  const body = input.slice(1);
+
+  // Still typing the command name (no space yet).
+  if (!body.includes(" ")) {
+    const suggestions = commands
+      .filter((c) => c.name.startsWith(body))
+      .map((c) => ({ value: c.name, label: `/${c.name}`, description: c.description }));
+    return { kind: "command", suggestions };
+  }
+
+  // Typing arguments.
+  const parts = body.split(" ");
+  const cmdName = parts[0];
+  const command = commands.find((c) => c.name === cmdName);
+  if (!command?.completeArg) return { kind: "none", suggestions: [] };
+
+  // Tokens after the command name. The last one is the partial being edited;
+  // everything before it is a completed argument.
+  const argTokens = parts.slice(1);
+  const partial = argTokens[argTokens.length - 1] ?? "";
+  const completedArgs = argTokens.slice(0, -1);
+
+  const candidates = command.completeArg(completedArgs);
+  const suggestions = candidates
+    .filter((v) => v.startsWith(partial))
+    .map((v) => ({ value: v, label: v }));
+
+  return { kind: "arg", command: cmdName, completedArgs, partial, suggestions };
+}
+
+/** Build the new input string when a suggestion is accepted. */
+function applySuggestion(input: string, completion: Completion, value: string): string {
+  if (completion.kind === "command") {
+    return `/${value} `;
+  }
+  if (completion.kind === "arg") {
+    const prefix = [`/${completion.command}`, ...completion.completedArgs].join(" ");
+    return `${prefix} ${value} `;
+  }
+  return input;
 }
 
 function MessageLine({ line }: { line: Line }): React.ReactNode {

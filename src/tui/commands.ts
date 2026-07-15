@@ -9,6 +9,15 @@ export interface CommandDef {
   name: string;
   description: string;
   run: (agent: Agent, args: string[]) => Promise<string>;
+  /**
+   * Return the candidate values for the next argument position.
+   *
+   * `completedArgs` are the arguments already fully typed (not including the
+   * partial token the user is currently editing). Return the full candidate
+   * list for that position; the UI filters it by the current prefix. Return
+   * an empty array (or omit the function) when there is nothing to complete.
+   */
+  completeArg?: (completedArgs: string[]) => string[];
 }
 
 /**
@@ -62,6 +71,11 @@ export const commands: CommandDef[] = [
   {
     name: "model",
     description: "Show current model profile or switch to another. Usage: /model, /model list, /model <profile-name>",
+    completeArg: (completedArgs) => {
+      // Only the first argument (the profile name) is completable.
+      if (completedArgs.length > 0) return [];
+      return ["list", ...Object.keys(loadConfig().profiles)];
+    },
     run: async (agent, args) => {
       const config = loadConfig();
       const names = Object.keys(config.profiles);
@@ -104,6 +118,13 @@ export const commands: CommandDef[] = [
   {
     name: "reset-key",
     description: "Delete the stored API key from Keychain and exit. Restart to re-enter it.",
+    completeArg: (completedArgs) => {
+      // Only the first argument (the provider) is completable.
+      if (completedArgs.length > 0) return [];
+      const config = loadConfig();
+      const providers = Object.values(config.profiles).map((p) => p.provider);
+      return [...new Set(providers)];
+    },
     run: async (_agent, args) => {
       const provider = args[0] ?? loadConfig().profiles[loadConfig().defaultProfile].provider;
       deleteKeychainKey(provider);
