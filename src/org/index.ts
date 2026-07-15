@@ -44,6 +44,7 @@ export {
   appendQuote,
   writeDocument,
   setTodoState,
+  setPlanning,
 } from "./ops.ts";
 export type { OrgWriteOpts } from "./ops.ts";
 
@@ -53,6 +54,9 @@ export {
   findMatchingBlocks,
   requireOneMatch,
   rewriteTodoOnLine,
+  splicePlanningLines,
+  isPlanningLine,
+  readPlanningFromBlockLines,
 } from "./match.ts";
 export type { LocatedHeadline, MatchQuery } from "./match.ts";
 

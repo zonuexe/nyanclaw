@@ -9,6 +9,7 @@ import {
   appendNote,
   appendQuote,
   setTodoState,
+  setPlanning,
   OrgError,
   type BlockSpec,
   type PageRef,
@@ -491,6 +492,59 @@ export const logseqSetTodo = defineTool({
           {
             type: "text",
             text: `Set TODO state to ${stateRaw} for “${params.title}” in ${result.path}`,
+          },
+        ],
+        details: result,
+      };
+    } catch (err) {
+      return toolError(err);
+    }
+  },
+});
+
+export const logseqSetPlanning = defineTool({
+  name: "logseq_set_planning",
+  label: "Set Logseq DEADLINE/SCHEDULED",
+  description:
+    "Set or clear DEADLINE/SCHEDULED on an existing task by title. Omit a field to keep it; pass empty string to clear.",
+  parameters: Type.Object({
+    title: Type.String({ description: "Task title (normalized match)" }),
+    deadline: Type.Optional(
+      Type.String({
+        description: "YYYY-MM-DD or YYYY-MM-DD HH:MM; empty string clears; omit keeps",
+      }),
+    ),
+    scheduled: Type.Optional(
+      Type.String({
+        description: "YYYY-MM-DD or YYYY-MM-DD HH:MM; empty string clears; omit keeps",
+      }),
+    ),
+    ...pageParams,
+  }),
+  execute: async (_toolCallId, params) => {
+    try {
+      const ref = resolvePageRef({
+        page: params.page as string | undefined,
+        journalDate: params.journalDate as string | undefined,
+      });
+      const planning: {
+        deadline?: { date: string; time?: string } | null;
+        scheduled?: { date: string; time?: string } | null;
+      } = {};
+      if (Object.prototype.hasOwnProperty.call(params, "deadline")) {
+        const d = params.deadline as string | undefined;
+        planning.deadline = !d ? null : parseTs(d);
+      }
+      if (Object.prototype.hasOwnProperty.call(params, "scheduled")) {
+        const s = params.scheduled as string | undefined;
+        planning.scheduled = !s ? null : parseTs(s);
+      }
+      const result = await setPlanning(ref, String(params.title), planning);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Updated planning for “${params.title}” in ${result.path}`,
           },
         ],
         details: result,

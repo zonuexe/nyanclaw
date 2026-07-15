@@ -119,6 +119,78 @@ export function requireOneMatch(
   return hits[0]!;
 }
 
+const PLANNING_LINE_RE = /^\s*(DEADLINE|SCHEDULED):\s*<([^>]+)>\s*$/i;
+
+export function isPlanningLine(line: string): boolean {
+  return PLANNING_LINE_RE.test(line);
+}
+
+/** Parse existing DEADLINE/SCHEDULED from block body lines (not including headline). */
+export function readPlanningFromBlockLines(lines: string[]): {
+  deadline: string | null;
+  scheduled: string | null;
+} {
+  let deadline: string | null = null;
+  let scheduled: string | null = null;
+  for (const line of lines) {
+    const m = line.match(PLANNING_LINE_RE);
+    if (!m) continue;
+    const kind = m[1]!.toUpperCase();
+    const val = m[2]!.trim();
+    if (kind === "DEADLINE") deadline = val;
+    else scheduled = val;
+  }
+  return { deadline, scheduled };
+}
+
+/**
+ * Replace planning lines in a block range. Preserves headline, drawer, body, children.
+ * `undefined` field = keep existing; `null` = clear; value = set.
+ */
+export function splicePlanningLines(
+  allLines: string[],
+  hit: LocatedHeadline,
+  planning: {
+    deadline?: { date: string; time?: string } | null;
+    scheduled?: { date: string; time?: string } | null;
+  },
+): string[] {
+  const body = allLines.slice(hit.lineIndex + 1, hit.end);
+  const existing = readPlanningFromBlockLines(body);
+  const withoutPlanning = body.filter((l) => !isPlanningLine(l));
+
+  function formatTs(ts: { date: string; time?: string }): string {
+    return ts.time ? `${ts.date} ${ts.time}` : ts.date;
+  }
+
+  let deadline: string | null =
+    planning.deadline === undefined
+      ? existing.deadline
+      : planning.deadline === null
+        ? null
+        : formatTs(planning.deadline);
+  let scheduled: string | null =
+    planning.scheduled === undefined
+      ? existing.scheduled
+      : planning.scheduled === null
+        ? null
+        : formatTs(planning.scheduled);
+
+  const planningIndent = hit.style === "headline" ? "" : "  ".repeat(Math.max(0, hit.level - 1)) + "  ";
+  const newPlanning: string[] = [];
+  if (deadline) newPlanning.push(`${planningIndent}DEADLINE: <${deadline}>`);
+  if (scheduled) newPlanning.push(`${planningIndent}SCHEDULED: <${scheduled}>`);
+
+  // Insert planning immediately after headline, before drawer/body
+  const next = [
+    ...allLines.slice(0, hit.lineIndex + 1),
+    ...newPlanning,
+    ...withoutPlanning,
+    ...allLines.slice(hit.end),
+  ];
+  return next;
+}
+
 /** Replace TODO keyword on a headline/list line; preserve rest of line. */
 export function rewriteTodoOnLine(
   line: string,

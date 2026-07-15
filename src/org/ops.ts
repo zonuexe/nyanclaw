@@ -183,7 +183,42 @@ export async function setTodoState(
   lines[hit.lineIndex] = rewriteTodoOnLine(lines[hit.lineIndex]!, state);
   let after = lines.join("\n");
   if (!after.endsWith("\n") && before.endsWith("\n")) after += "\n";
-  // L2: no double markers; count headlines unchanged
+  assertStructuralOk(before, after, { kind: "write_document" });
+  debugL1(after);
+  writeOrgFileAtomic(path, after);
+  return {
+    path,
+    op: "splice",
+    bytes: new TextEncoder().encode(after).length,
+    validated: true,
+    mtimeBeforeMs,
+    contentHashBefore,
+  };
+}
+
+export async function setPlanning(
+  page: PageRef,
+  byTitle: string,
+  planning: {
+    deadline?: import("./types.ts").OrgTimestamp | null;
+    scheduled?: import("./types.ts").OrgTimestamp | null;
+  },
+  opts?: OrgWriteOpts & { scope?: "level1" | "level1-2" },
+): Promise<WriteResult> {
+  const { requireOneMatch, splicePlanningLines } = await import("./match.ts");
+  const root = resolveGraphRoot(opts);
+  const path = resolvePath(page, root);
+  const before = readOrgFile(path);
+  if (before === null) {
+    throw new OrgError("not_found", `file not found: ${path}`);
+  }
+  const mtimeBeforeMs = mtimeMs(path);
+  const contentHashBefore = sha256(before);
+  const hit = requireOneMatch(before, { byTitle, scope: opts?.scope });
+  const lines = before.split("\n");
+  const next = splicePlanningLines(lines, hit, planning);
+  let after = next.join("\n");
+  if (!after.endsWith("\n")) after += "\n";
   assertStructuralOk(before, after, { kind: "write_document" });
   debugL1(after);
   writeOrgFileAtomic(path, after);

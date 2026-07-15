@@ -44,6 +44,46 @@ describe("rewriteTodoOnLine", () => {
   });
 });
 
+describe("setPlanning", () => {
+  test("sets deadline preserving body", async () => {
+    const { setPlanning } = await import("../ops.ts");
+    const root = mkdtempSync(join(tmpdir(), "nyanclaw-plan-"));
+    try {
+      await appendBlock(
+        { kind: "journal", date: "2026-07-16" },
+        {
+          todo: "TODO",
+          title: "Ship planning",
+          tags: ["Task"],
+          body: ["keep me"],
+        },
+        { graphRoot: root },
+      );
+      await setPlanning(
+        { kind: "journal", date: "2026-07-16" },
+        "Ship planning",
+        { deadline: { date: "2026-08-01" } },
+        { graphRoot: root },
+      );
+      const path = join(root, "journals", "2026_07_16.org");
+      const content = readFileSync(path, "utf-8");
+      expect(content).toContain("DEADLINE: <2026-08-01>");
+      expect(content).toContain("keep me");
+      await setPlanning(
+        { kind: "journal", date: "2026-07-16" },
+        "Ship planning",
+        { deadline: null },
+        { graphRoot: root },
+      );
+      const cleared = readFileSync(path, "utf-8");
+      expect(cleared).not.toContain("DEADLINE:");
+      expect(cleared).toContain("keep me");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("setTodoState", () => {
   test("marks DONE preserving body", async () => {
     const root = mkdtempSync(join(tmpdir(), "nyanclaw-todo-"));

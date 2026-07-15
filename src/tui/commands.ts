@@ -133,6 +133,144 @@ export const commands: CommandDef[] = [
     },
   },
   {
+    name: "distill",
+    description:
+      "Smarter session distill into Proposals. Usage: /distill [decision|lesson|preference|all]",
+    completeArg: (completedArgs) => {
+      if (completedArgs.length === 0) {
+        return ["decision", "lesson", "preference", "all"];
+      }
+      return [];
+    },
+    run: async (agent, args) => {
+      const kind = (args[0] ?? "all").toLowerCase();
+      const types: RecordType[] =
+        kind === "all"
+          ? ["decision", "lesson", "preference"]
+          : kind === "decision" || kind === "lesson" || kind === "preference"
+            ? [kind]
+            : [];
+      if (types.length === 0) {
+        return "Usage: /distill [decision|lesson|preference|all]";
+      }
+
+      const msgs = (agent.state.messages ?? []).filter(
+        (m: { role?: string }) => m.role === "user" || m.role === "assistant",
+      );
+      if (msgs.length === 0) {
+        return "Nothing to distill — conversation is empty.";
+      }
+
+      function msgText(m: unknown): string {
+        if (!m || typeof m !== "object") return "";
+        const content = (m as { content?: unknown }).content;
+        if (typeof content === "string") return content;
+        if (Array.isArray(content)) {
+          return content
+            .map((p) =>
+              typeof p === "string"
+                ? p
+                : p && typeof p === "object" && "text" in p
+                  ? String((p as { text: unknown }).text)
+                  : "",
+            )
+            .join("");
+        }
+        return "";
+      }
+
+      const userTexts = msgs
+        .filter((m: { role?: string }) => m.role === "user")
+        .map((m) => msgText(m))
+        .map((t) => t.trim())
+        .filter((t) => t && !t.startsWith("/"));
+
+      type Cand = { type: RecordType; title: string; body: string[]; score: number };
+      const cands: Cand[] = [];
+
+      const decisionHints =
+        /\b(decide|decided|decision|方針|決定|採用|選ぶ|選んだ|instead of|rather than|will use|にします|に決めた)\b/i;
+      const lessonHints =
+        /\b(lesson|learned|mistake|avoid|don't|do not|pitfall|学び|教訓|注意|失敗|避ける|壊れた)\b/i;
+      const prefHints =
+        /\b(prefer|preference|always|never|default|好み|常に|絶対|デフォルト|言語|language)\b/i;
+
+      for (const text of userTexts.slice(-12)) {
+        const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+        const title = (lines[0] ?? text).slice(0, 80);
+        const body = lines.slice(0, 40);
+        const lower = text.toLowerCase();
+
+        if (types.includes("decision") && decisionHints.test(text)) {
+          cands.push({ type: "decision", title, body, score: 3 + (lower.includes("decide") ? 1 : 0) });
+        }
+        if (types.includes("lesson") && lessonHints.test(text)) {
+          cands.push({ type: "lesson", title, body, score: 3 });
+        }
+        if (types.includes("preference") && prefHints.test(text)) {
+          cands.push({ type: "preference", title, body, score: 2 });
+        }
+      }
+
+      // Fallback: if nothing matched and type is a single kind, take last 3 user turns
+      if (cands.length === 0 && types.length === 1) {
+        for (const text of userTexts.slice(-3)) {
+          const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+          cands.push({
+            type: types[0]!,
+            title: (lines[0] ?? text).slice(0, 80),
+            body: lines.slice(0, 40),
+            score: 1,
+          });
+        }
+      }
+
+      // Dedupe by type+title, keep highest score, cap 8
+      cands.sort((a, b) => b.score - a.score);
+      const seen = new Set<string>();
+      const picked: Cand[] = [];
+      for (const c of cands) {
+        const k = `${c.type}:${c.title}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        picked.push(c);
+        if (picked.length >= 8) break;
+      }
+
+      if (picked.length === 0) {
+        return (
+          "No distill candidates (no keyword hits). " +
+          "Try `/distill decision` after discussing a choice, or use `/capture` manually."
+        );
+      }
+
+      const created: string[] = [];
+      const sessionId = getCurrentSessionId();
+      for (const c of picked) {
+        try {
+          const meta = await createProposal({
+            type: c.type,
+            title: c.title,
+            body: c.body,
+            sourceSessionId: sessionId,
+          });
+          created.push(`${meta.type} \`${meta.id}\` — ${meta.title}`);
+        } catch {
+          /* skip */
+        }
+      }
+
+      if (created.length === 0) {
+        return "Distill failed to create proposals.";
+      }
+      return (
+        `## Distilled ${created.length} proposal(s)\n\n` +
+        created.map((l) => `- ${l}`).join("\n") +
+        `\n\nReview with \`/inbox\`, then \`/apply\` or \`/reject\`.`
+      );
+    },
+  },
+  {
     name: "capture",
     description:
       "Draft a Record Proposal (not live). Usage: /capture decision|lesson|preference|quote <title> [| body...]",

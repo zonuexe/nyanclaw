@@ -1,8 +1,15 @@
 import { Type } from "typebox";
 import { execSync } from "node:child_process";
-import { readFileSync, existsSync, writeFileSync, readdirSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { logseqGraph } from "../config.ts";
+import {
+  decodePageName,
+  encodePageName,
+  serializeBlock,
+  type BlockSpec,
+} from "../org/index.ts";
+import { writeOrgFileAtomic } from "../org/fs.ts";
 
 function defineTool(def: {
   name: string;
@@ -22,13 +29,9 @@ function defineTool(def: {
 // Logseq page helpers (filesystem-based, supports .org and .md)
 // ---------------------------------------------------------------------------
 
-function logseqEncode(name: string): string {
-  return name.replace(/:/g, "%3A").replace(/\//g, "%2F");
-}
-
 function pagePath(name: string): string {
   const graph = logseqGraph();
-  const encoded = logseqEncode(name);
+  const encoded = encodePageName(name);
   const candidates = [
     join(graph, "pages", `${name}.org`),
     join(graph, "pages", `${name}.md`),
@@ -49,12 +52,11 @@ function readPage(name: string): string | null {
 
 function writePage(name: string, content: string): void {
   const graph = logseqGraph();
-  const encoded = logseqEncode(name);
+  const encoded = encodePageName(name);
   const p = join(graph, "pages", `${encoded}.org`);
   migrateToEncodedFormat(name, encoded, graph);
-  const dir = p.substring(0, p.lastIndexOf("/"));
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(p, content, "utf-8");
+  const body = content.endsWith("\n") ? content : content + "\n";
+  writeOrgFileAtomic(p, body);
 }
 
 /** Logseq changed its page naming: move old bare-`:` files to `%3A`-encoded names. */
@@ -64,10 +66,28 @@ function migrateToEncodedFormat(raw: string, encoded: string, graph: string): vo
   const newPath = join(graph, "pages", `${encoded}.org`);
   if (!existsSync(oldPath)) return;
   if (existsSync(newPath)) {
-    try { unlinkSync(oldPath); } catch {}
+    try {
+      unlinkSync(oldPath);
+    } catch {
+      /* ignore */
+    }
   } else {
-    try { renameSync(oldPath, newPath); } catch {}
+    try {
+      renameSync(oldPath, newPath);
+    } catch {
+      /* ignore */
+    }
   }
+}
+
+/** Issue/PR titles for BlockSpec (reject-safe). */
+function safeTitle(raw: string): string {
+  return raw
+    .replace(/[\r\n]+/g, " ")
+    .replace(/^\*+\s*/, "")
+    .replace(/^-\s*/, "")
+    .trim()
+    .slice(0, 500) || "(untitled)";
 }
 
 // ---------------------------------------------------------------------------
@@ -164,85 +184,106 @@ function renderSections(sections: Map<string, NewsSection>): string {
   return sorted.map(([_, s]) => s.lines.join("\n")).join("\n").trim() + "\n";
 }
 
-/** Build today's news section content for a watched repo. */
+/** Build today's news section via BlockSpec serialize (history sections stay opaque). */
 function buildTodayNews(repo: string): string[] {
-  const [owner, name] = repo.split("/");
-  const lines: string[] = [];
-  const today = new Date();
-  const dateLabel = today.toISOString().slice(0, 10);
+  const dateLabel = new Date().toISOString().slice(0, 10);
+  const children: BlockSpec[] = [];
 
-  lines.push(`* ${dateLabel}`);
-
-  // My open Issues & PRs in this repo
-  const myIssuesRaw = gh(`search issues --repo "${repo}" --author @me --state open --limit 10 --json number,title,state,updatedAt`);
-  const myIssues = myIssuesRaw ? JSON.parse(myIssuesRaw) as any[] : [];
-  const myPrsRaw = gh(`search prs --repo "${repo}" --author @me --state open --limit 10 --json number,title,state,updatedAt,headRefName`);
-  const myPrs = myPrsRaw ? JSON.parse(myPrsRaw) as any[] : [];
+  const myIssuesRaw = gh(
+    `search issues --repo "${repo}" --author @me --state open --limit 10 --json number,title,state,updatedAt`,
+  );
+  const myIssues = myIssuesRaw ? (JSON.parse(myIssuesRaw) as any[]) : [];
+  const myPrsRaw = gh(
+    `search prs --repo "${repo}" --author @me --state open --limit 10 --json number,title,state,updatedAt,headRefName`,
+  );
+  const myPrs = myPrsRaw ? (JSON.parse(myPrsRaw) as any[]) : [];
   if (myIssues.length > 0 || myPrs.length > 0) {
-    lines.push("** My Activity");
-    for (const pr of myPrs) {
-      const updated = (pr.updatedAt || "").slice(0, 10);
-      lines.push(`*** [#${pr.number}] ${pr.title} (PR, ${pr.state}, updated: ${updated})`);
-    }
-    for (const iss of myIssues) {
-      const updated = (iss.updatedAt || "").slice(0, 10);
-      lines.push(`*** [#${iss.number}] ${iss.title} (issue, ${iss.state}, updated: ${updated})`);
-    }
+    children.push({
+      title: "My Activity",
+      children: [
+        ...myPrs.map((pr) => ({
+          title: safeTitle(
+            `[#${pr.number}] ${pr.title} (PR, ${pr.state}, updated: ${(pr.updatedAt || "").slice(0, 10)})`,
+          ),
+        })),
+        ...myIssues.map((iss) => ({
+          title: safeTitle(
+            `[#${iss.number}] ${iss.title} (issue, ${iss.state}, updated: ${(iss.updatedAt || "").slice(0, 10)})`,
+          ),
+        })),
+      ],
+    });
   }
 
-  // Open PRs
-  const prsRaw = gh(`search prs --repo "${repo}" --state open --sort updated --limit 20 --json number,title,state,createdAt,updatedAt,headRefName`);
-  const prs = prsRaw ? JSON.parse(prsRaw) as any[] : [];
+  const prsRaw = gh(
+    `search prs --repo "${repo}" --state open --sort updated --limit 20 --json number,title,state,createdAt,updatedAt,headRefName`,
+  );
+  const prs = prsRaw ? (JSON.parse(prsRaw) as any[]) : [];
   if (prs.length > 0) {
-    lines.push("** Open PRs");
-    for (const pr of prs) {
-      const updated = (pr.updatedAt || "").slice(0, 10);
-      lines.push(`*** [#${pr.number}] ${pr.title} - ${pr.state}, updated: ${updated}`);
-    }
+    children.push({
+      title: "Open PRs",
+      children: prs.map((pr) => ({
+        title: safeTitle(
+          `[#${pr.number}] ${pr.title} - ${pr.state}, updated: ${(pr.updatedAt || "").slice(0, 10)}`,
+        ),
+      })),
+    });
   }
 
-  // Recently merged PRs (last 7 days)
-  const mergedRaw = gh(`search prs --repo "${repo}" --state merged --sort updated --limit 20 --json number,title,state,mergedAt,updatedAt`);
-  const merged = mergedRaw ? JSON.parse(mergedRaw) as any[] : [];
+  const mergedRaw = gh(
+    `search prs --repo "${repo}" --state merged --sort updated --limit 20 --json number,title,state,mergedAt,updatedAt`,
+  );
+  const merged = mergedRaw ? (JSON.parse(mergedRaw) as any[]) : [];
   const weekAgo = new Date(Date.now() - 7 * ONE_DAY_MS).toISOString();
   const recentMerged = merged.filter((p: any) => p.mergedAt && p.mergedAt >= weekAgo);
   if (recentMerged.length > 0) {
-    lines.push("** Recently Merged PRs");
-    for (const pr of recentMerged) {
-      const mergedAt = (pr.mergedAt || "").slice(0, 10);
-      lines.push(`*** [#${pr.number}] ${pr.title} - ${mergedAt}`);
-    }
+    children.push({
+      title: "Recently Merged PRs",
+      children: recentMerged.map((pr) => ({
+        title: safeTitle(
+          `[#${pr.number}] ${pr.title} - ${(pr.mergedAt || "").slice(0, 10)}`,
+        ),
+      })),
+    });
   }
 
-  // Untriaged issues (open, no labels)
-  const issuesRaw = gh(`search issues --repo "${repo}" --state open --sort created --limit 20 --json number,title,state,createdAt,labels`);
-  const issues = issuesRaw ? JSON.parse(issuesRaw) as any[] : [];
+  const issuesRaw = gh(
+    `search issues --repo "${repo}" --state open --sort created --limit 20 --json number,title,state,createdAt,labels`,
+  );
+  const issues = issuesRaw ? (JSON.parse(issuesRaw) as any[]) : [];
   const untriaged = issues.filter((i: any) => !i.labels?.length);
   if (untriaged.length > 0) {
-    lines.push("** Untriaged Issues");
-    for (const issue of untriaged) {
-      const created = (issue.createdAt || "").slice(0, 10);
-      lines.push(`*** [#${issue.number}] ${issue.title} - ${created}`);
-    }
+    children.push({
+      title: "Untriaged Issues",
+      children: untriaged.map((issue) => ({
+        title: safeTitle(
+          `[#${issue.number}] ${issue.title} - ${(issue.createdAt || "").slice(0, 10)}`,
+        ),
+      })),
+    });
   }
 
-  // Recent commits on default branch
   const commitsRaw = gh(`api repos/${repo}/commits?per_page=10 2>/dev/null`, 10_000);
   if (commitsRaw) {
     try {
       const commits = JSON.parse(commitsRaw) as any[];
       if (commits.length > 0) {
-        lines.push("** Recent Commits");
-        for (const c of commits.slice(0, 5)) {
-          const sha = (c.sha || "").slice(0, 7);
-          const msg = (c.commit?.message || "").split("\n")[0].slice(0, 80);
-          lines.push(`*** ${sha} ${msg}`);
-        }
+        children.push({
+          title: "Recent Commits",
+          children: commits.slice(0, 5).map((c) => {
+            const sha = (c.sha || "").slice(0, 7);
+            const msg = (c.commit?.message || "").split("\n")[0].slice(0, 80);
+            return { title: safeTitle(`${sha} ${msg}`) };
+          }),
+        });
       }
-    } catch {}
+    } catch {
+      /* ignore parse errors */
+    }
   }
 
-  return lines;
+  if (children.length === 0) return [];
+  return serializeBlock({ title: dateLabel, children }).split("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -474,15 +515,22 @@ function updateDashboard(_content: string, _repos?: string[]): void {
 
   if (existsSync(pagesDir)) {
     for (const file of readdirSync(pagesDir)) {
-      const match = file.match(/^GH:(.+)\/news\.(org|md)$/);
+      if (!/\.(org|md)$/i.test(file)) continue;
+      // Match both bare GH:…/news and encoded GH%3A…%2Fnews
+      const logical = decodePageName(file);
+      const match = logical.match(/^GH:(.+)\/news$/);
       if (!match) continue;
-      const content = readFileSync(join(pagesDir, file), "utf-8");
-      const sections = parseNewsPage(content);
-      for (const [label] of sections) {
-        if (label >= cutoff) {
-          recentRepos.push(`GH:${match[1]}/news`);
-          break;
+      try {
+        const content = readFileSync(join(pagesDir, file), "utf-8");
+        const sections = parseNewsPage(content);
+        for (const [label] of sections) {
+          if (label >= cutoff) {
+            recentRepos.push(`GH:${match[1]}/news`);
+            break;
+          }
         }
+      } catch {
+        /* skip unreadable */
       }
     }
   }
@@ -491,36 +539,42 @@ function updateDashboard(_content: string, _repos?: string[]): void {
   const watchContent = readPage("GitHub/watches");
   const today = new Date().toISOString().slice(0, 10);
 
-  const lines: string[] = [];
+  const children: BlockSpec[] = [];
 
-  lines.push("* Issues");
+  const issueKids: BlockSpec[] = [];
   if (maintContent) {
-    const targets = extractGhLinks(maintContent);
-    for (const t of targets) {
-      lines.push(`** [[GH:${t}]]`);
-      if (recentRepos.includes(`GH:${t}/news`)) {
-        lines.push(`*** [[GH:${t}/news]]`);
-      }
+    for (const t of extractGhLinks(maintContent)) {
+      const kid: BlockSpec = {
+        title: `[[GH:${t}]]`,
+        children: recentRepos.includes(`GH:${t}/news`)
+          ? [{ title: `[[GH:${t}/news]]` }]
+          : undefined,
+      };
+      issueKids.push(kid);
     }
   }
+  children.push({ title: "Issues", children: issueKids.length ? issueKids : undefined });
 
-  lines.push("* Pull Requests");
-  lines.push("** (run gh_sync to update)");
+  children.push({
+    title: "Pull Requests",
+    children: [{ title: "(run gh_sync to update)" }],
+  });
 
-  lines.push("* Watches");
+  const watchKids: BlockSpec[] = [];
   if (watchContent) {
-    const repos = extractGhLinks(watchContent);
-    for (const r of repos) {
-      lines.push(`** [[GH:${r}]]`);
-      if (recentRepos.includes(`GH:${r}/news`)) {
-        lines.push(`*** [[GH:${r}/news]] (updated: ${today})`);
-      }
+    for (const r of extractGhLinks(watchContent)) {
+      watchKids.push({
+        title: `[[GH:${r}]]`,
+        children: recentRepos.includes(`GH:${r}/news`)
+          ? [{ title: `[[GH:${r}/news]] (updated: ${today})` }]
+          : undefined,
+      });
     }
   }
+  children.push({ title: "Watches", children: watchKids.length ? watchKids : undefined });
+  children.push({ title: "[[GitHub/watches]]" });
+  children.push({ title: "[[GitHub/maintains]]" });
 
-  lines.push("");
-  lines.push("* [[GitHub/watches]]");
-  lines.push("* [[GitHub/maintains]]");
-
-  writePage("GitHub", lines.join("\n"));
+  const body = children.map((b) => serializeBlock(b)).join("\n");
+  writePage("GitHub", body);
 }

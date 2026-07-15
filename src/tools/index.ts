@@ -5,6 +5,7 @@ import {
   logseqAppendNote,
   logseqAppendQuote,
   logseqSetTodo,
+  logseqSetPlanning,
   logseqWriteBlock,
   logseqSearch,
 } from "./logseq.ts";
@@ -27,6 +28,7 @@ export function createTools(): any[] {
     logseqAppendNote,
     logseqAppendQuote,
     logseqSetTodo,
+    logseqSetPlanning,
     logseqWriteBlock,
     logseqSearch,
     calendarReadEvents,
