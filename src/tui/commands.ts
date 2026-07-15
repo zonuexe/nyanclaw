@@ -64,6 +64,73 @@ export const commands: CommandDef[] = [
     },
   },
   {
+    name: "bye",
+    description:
+      "End session: offer to draft Record Proposals from this conversation (one-shot offer)",
+    run: async (agent, args) => {
+      const force = args[0] === "yes" || args[0] === "-y";
+      // Heuristic: skip empty sessions
+      const msgs = (agent.state.messages ?? []).filter(
+        (m: { role?: string }) => m.role === "user" || m.role === "assistant",
+      );
+      if (msgs.length === 0) {
+        return "Session empty — nothing to capture. Goodbye.";
+      }
+      if (!force) {
+        return (
+          `## Session end\n\n` +
+          `This session has **${msgs.length}** user/assistant messages.\n\n` +
+          `Draft candidate Record Proposals into the inbox?\n` +
+          `- \`/bye yes\` — create pending decision/lesson/preference candidates from recent user lines\n` +
+          `- Or run \`/capture <type> <title>\` yourself, then leave.\n\n` +
+          `Nothing is written until you confirm.`
+        );
+      }
+      // Lightweight candidate extraction: last few user messages as decision drafts
+      const users = msgs
+        .filter((m: { role?: string }) => m.role === "user")
+        .slice(-5);
+      const created: string[] = [];
+      for (const m of users) {
+        const content = (m as { content?: unknown }).content;
+        let text = "";
+        if (typeof content === "string") text = content;
+        else if (Array.isArray(content)) {
+          text = content
+            .map((p) =>
+              typeof p === "string"
+                ? p
+                : p && typeof p === "object" && "text" in p
+                  ? String((p as { text: unknown }).text)
+                  : "",
+            )
+            .join("");
+        }
+        text = text.trim();
+        if (!text || text.startsWith("/")) continue;
+        const title = text.split("\n")[0]!.slice(0, 80);
+        try {
+          const meta = await createProposal({
+            type: "decision",
+            title,
+            body: text.split("\n").slice(0, 40),
+          });
+          created.push(meta.id);
+        } catch {
+          /* skip bad lines */
+        }
+      }
+      if (created.length === 0) {
+        return "No candidate proposals created (nothing suitable). Review with /inbox.";
+      }
+      return (
+        `## Drafted ${created.length} proposal(s)\n\n` +
+        created.map((id) => `- \`${id}\``).join("\n") +
+        `\n\nReview with \`/inbox\`, then \`/apply\` or \`/reject\`.`
+      );
+    },
+  },
+  {
     name: "capture",
     description:
       "Draft a Record Proposal (not live). Usage: /capture decision|lesson|preference|quote <title> [| body...]",
