@@ -3,7 +3,8 @@ import { readFile, writeFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import YAML from "yaml";
-import { logseqGraph, slidesDir } from "../config.ts";
+import { slidesDir } from "../config.ts";
+import { appendBlocks } from "../org/index.ts";
 
 function defineTool(def: {
   name: string;
@@ -479,7 +480,6 @@ export const talkCreateTasks = defineTool({
     const conference = outline?.conference ?? "TBD";
     const talkDate = (params.talkDate as string | undefined) ?? outline?.date ?? "";
 
-    const now = new Date();
     const tasks: { task: string; deadline?: string }[] = [];
 
     const cfpDeadlineParam = params.cfpDeadline as string | undefined;
@@ -517,27 +517,20 @@ export const talkCreateTasks = defineTool({
       tasks.push({ task: `Rehearsal for "${title}"` });
     }
 
-    // Write to today's Logseq journal as Org-mode entries
-    const todayJournal = join(
-      logseqGraph(),
-      "journals",
-      `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, "0")}_${String(now.getDate()).padStart(2, "0")}.org`,
-    );
-
-    let journalEntry = `\n* TODO Prepare: ${title}\n`;
-    for (const t of tasks) {
-      if (t.deadline) {
-        journalEntry += `  - TODO ${t.task}\n  DEADLINE: <${t.deadline}>\n`;
-      } else {
-        journalEntry += `  - TODO ${t.task}\n`;
-      }
-    }
-
-    try {
-      await writeFile(todayJournal, journalEntry, { flag: "a" });
-    } catch {
-      // journal directory may not exist
-    }
+    await appendBlocks({ kind: "journal" }, [
+      {
+        style: "headline",
+        todo: "TODO",
+        title: `Prepare: ${title}`,
+        tags: ["Task"],
+        children: tasks.map((t) => ({
+          todo: "TODO" as const,
+          title: t.task,
+          tags: ["Task"],
+          deadline: t.deadline ? { date: t.deadline } : undefined,
+        })),
+      },
+    ]);
 
     const taskList = tasks
       .map((t) => `- [ ] ${t.task}${t.deadline ? ` (by ${t.deadline})` : ""}`)
