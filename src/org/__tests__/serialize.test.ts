@@ -116,6 +116,34 @@ describe("paths", () => {
   });
 });
 
+describe("namespace", () => {
+  test("machine page helpers and ensure + audit", async () => {
+    const { machinePage, inboxPage, ensureMachinePage, appendAuditLine } = await import(
+      "../namespace.ts"
+    );
+    const root = mkdtempSync(join(tmpdir(), "nyanclaw-ns-"));
+    try {
+      const inbox = inboxPage();
+      expect(machinePage("inbox")).toEqual({ kind: "page", name: "nyanclaw/inbox" });
+      expect(inbox.kind).toBe("page");
+      if (inbox.kind === "page") expect(inbox.name).toBe("nyanclaw/inbox");
+      const r = await ensureMachinePage(inboxPage(), {
+        graphRoot: root,
+        seedLines: ["pending: none"],
+      });
+      expect(r.created).toBe(true);
+      const again = await ensureMachinePage(inboxPage(), { graphRoot: root });
+      expect(again.created).toBe(false);
+      await appendAuditLine("2026-07-16 applied decision-1", { graphRoot: root });
+      const auditPath = join(root, "pages", "nyanclaw%2Faudit.org");
+      const audit = readFileSync(auditPath, "utf-8");
+      expect(audit).toContain("2026-07-16 applied decision-1");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("ops temp graph", () => {
   test("appendBlock creates journal", async () => {
     const root = mkdtempSync(join(tmpdir(), "nyanclaw-org-"));

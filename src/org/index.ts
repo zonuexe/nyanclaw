@@ -45,3 +45,14 @@ export {
   writeDocument,
 } from "./ops.ts";
 export type { OrgWriteOpts } from "./ops.ts";
+
+export {
+  NYANCLAW_NS,
+  machinePage,
+  inboxPage,
+  auditPage,
+  sessionPage,
+  proposalPage,
+  ensureMachinePage,
+  appendAuditLine,
+} from "./namespace.ts";
