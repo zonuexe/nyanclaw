@@ -21,7 +21,11 @@ async function main() {
   }
 
   const agent = await createAgent(profile);
-  const tui = new NyanclawTui({ agent, config });
+
+  const useOpenTui = (process.env.NYANCLAW_TUI ?? "").toLowerCase() === "opentui";
+  const tui = useOpenTui
+    ? new (await import("./tui-otui/index.tsx")).NyanclawOpenTui({ agent, config })
+    : new NyanclawTui({ agent, config });
 
   try {
     const { execSync: exec } = await import("node:child_process");
@@ -34,7 +38,7 @@ async function main() {
     });
   } catch {}
 
-  tui.start();
+  await tui.start();
 }
 
 async function promptApiKey(provider: string): Promise<string> {
