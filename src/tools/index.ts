@@ -14,11 +14,13 @@ import { calendarReadEvents } from "./calendar.ts";
 import { talkCreateOutline, talkUpdateOutline, talkListOutlines, talkCreateTasks } from "./talk.ts";
 import { ghSyncWatched, ghSyncMaintained, ghSyncAll } from "./gh-sync.ts";
 import { ghRepoSkim } from "./gh-skim.ts";
+import { askGrokTool } from "./grok.ts";
 import { systemNow } from "./system.ts";
 
 export function createTools(): any[] {
   return [
     systemNow,
+    askGrokTool,
     ghListIssues,
     ghListPrs,
     ghMyActivity,

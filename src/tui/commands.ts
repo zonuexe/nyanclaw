@@ -16,6 +16,7 @@ import {
 } from "../records/index.ts";
 import { getCurrentSessionId } from "../session/index.ts";
 import { ghRepoSkim } from "../tools/gh-skim.ts";
+import { askGrokTool } from "../tools/grok.ts";
 
 export interface CommandDef {
   name: string;
@@ -68,6 +69,41 @@ export const commands: CommandDef[] = [
         write: true,
       });
       return result.content[0]?.text || "skim completed.";
+    },
+  },
+  {
+    name: "grok",
+    description:
+      "Ask Grok (web/X). Usage: /grok <question…>  or  /grok https://x.com/… <question…>",
+    run: async (_agent, args) => {
+      if (args.length === 0) {
+        return (
+          "Usage:\n" +
+          "- `/grok <question>`\n" +
+          "- `/grok https://x.com/user/status/… このツイートを説明して`\n\n" +
+          "Uses the Grok CLI (default model from config `grok_model`). " +
+          "Primary nyanclaw model stays for Logseq/tools."
+        );
+      }
+      let url: string | undefined;
+      const rest: string[] = [];
+      for (const a of args) {
+        if (/^https?:\/\/(x\.com|twitter\.com)\//i.test(a) && !url) {
+          url = a;
+        } else {
+          rest.push(a);
+        }
+      }
+      const prompt =
+        rest.join(" ").trim() ||
+        (url
+          ? "この投稿について日本語で説明・背景・文脈を教えて。"
+          : "");
+      if (!prompt) {
+        return "Usage: /grok <question> (optional X/web URL as first or second arg)";
+      }
+      const result = await askGrokTool.execute("", { prompt, url });
+      return result.content[0]?.text || "grok completed.";
     },
   },
   {

@@ -30,6 +30,10 @@ export interface Config {
   workspaceDir?: string;
   /** Directories to search for git clones (not a per-repo map). */
   repoExploreRoots?: string[];
+  /** Default Grok CLI model for ask_grok (e.g. grok-4.5). */
+  grokModel?: string;
+  /** Optional absolute path to the grok binary. */
+  grokBin?: string;
 }
 
 let _cached: Config | null = null;
@@ -74,6 +78,8 @@ export function loadConfig(): Config {
     repoExploreRoots: Array.isArray(exploreRoots)
       ? exploreRoots.map(String)
       : undefined,
+    grokModel: parsed.grok_model || parsed.grokModel || undefined,
+    grokBin: parsed.grok_bin || parsed.grokBin || undefined,
   };
 
   for (const [name, p] of Object.entries(parsed.profiles) as [string, any][]) {
