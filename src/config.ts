@@ -28,6 +28,8 @@ export interface Config {
   logseqGraph?: string;
   slidesDir?: string;
   workspaceDir?: string;
+  /** Directories to search for git clones (not a per-repo map). */
+  repoExploreRoots?: string[];
 }
 
 let _cached: Config | null = null;
@@ -62,12 +64,16 @@ export function loadConfig(): Config {
     process.exit(1);
   }
 
+  const exploreRoots = parsed.repo_explore_roots ?? parsed.repoExploreRoots;
   const config: Config = {
     profiles: {},
     defaultProfile: parsed.default_profile ?? "default",
     logseqGraph: parsed.logseq_graph || undefined,
     slidesDir: parsed.slides_dir || undefined,
     workspaceDir: parsed.workspace_dir || undefined,
+    repoExploreRoots: Array.isArray(exploreRoots)
+      ? exploreRoots.map(String)
+      : undefined,
   };
 
   for (const [name, p] of Object.entries(parsed.profiles) as [string, any][]) {

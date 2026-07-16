@@ -15,6 +15,7 @@ import {
   type RecordType,
 } from "../records/index.ts";
 import { getCurrentSessionId } from "../session/index.ts";
+import { ghRepoSkim } from "../tools/gh-skim.ts";
 
 export interface CommandDef {
   name: string;
@@ -49,6 +50,24 @@ export const commands: CommandDef[] = [
     run: async (_agent, _args) => {
       const result = await ghSyncAll.execute("", {});
       return result.content[0]?.text || "gh_sync_all completed.";
+    },
+  },
+  {
+    name: "skim",
+    description:
+      "Skim recent commits+diffs on a repo (gh). Usage: /skim owner/repo [1d|3d|YYYY-MM-DD]",
+    run: async (_agent, args) => {
+      const repo = args[0];
+      if (!repo) {
+        return "Usage: /skim owner/repo [1d|3d|24h|YYYY-MM-DD]\nExample: /skim phpstan/phpstan-src 1d";
+      }
+      const since = args[1];
+      const result = await ghRepoSkim.execute("", {
+        repo,
+        since,
+        write: true,
+      });
+      return result.content[0]?.text || "skim completed.";
     },
   },
   {

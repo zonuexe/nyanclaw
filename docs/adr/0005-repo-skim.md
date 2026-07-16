@@ -1,0 +1,3 @@
+# ADR-0005: Repo skim via gh (per-commit diffs → Logseq)
+
+Casual analysis of arbitrary GitHub repos is a **Repo skim**: list commits on the **default branch** in a time window (default rolling 24h), fetch **per-commit file patches** with `gh api`, and **append** a run to `GH:<owner>/<repo>/skim/<YYYY-MM-DD>`. Summaries for v1 use deterministic excerpts from patches; the session LLM may refine in chat. No clone required on the happy path. Local path SoT is Logseq page `GH:<owner>/<repo>` property `clone_path`; `config.yaml` only lists **explore roots** for discovery (bind-back only with user confirmation). Max 20 commits per run with truncation noted.
